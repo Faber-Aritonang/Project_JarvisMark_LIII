@@ -1,0 +1,11 @@
+{
+    "assistant_name": "Dodol",
+    "user_name": "",
+    "voice_name": "Charon",
+    "wake_word_enabled": false,
+    "morning_brief_enabled": true,
+    "ui_color": "#BB8DF0",
+    "language": "",
+    "input_device": "",
+    "output_device": ""
+}

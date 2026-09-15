@@ -349,7 +349,7 @@ def _keep_context_of(exc: BaseException) -> bool:
     return True
 
 
-class JarvisLive:
+class DodolLive:
     def __init__(self, ui: JarvisUI):
         self.ui             = ui
         self._asst_name     = "JARVI    S"   # updated each session from config
@@ -1728,11 +1728,11 @@ class JarvisLive:
             await asyncio.sleep(delay)
 
 def main():
-    ui = JarvisUI("face.png")
+    ui = JarvisUI("dodol.ico")
 
     def runner():
         ui.wait_for_api_key()
-        jarvis = JarvisLive(ui)
+        jarvis = DodolLive(ui)
         try:
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:
