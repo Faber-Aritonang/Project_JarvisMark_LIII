@@ -1,0 +1,25 @@
+services:
+  dodol:
+    build: .
+    container_name: dodol
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - dodol-config:/app/config
+      - dodol-logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - DISPLAY=${DISPLAY:-}
+    # Uncomment for audio passthrough (Linux with PulseAudio):
+    # devices:
+    #   - /dev/snd:/dev/snd
+    # environment:
+    #   - PULSE_SERVER=unix:/run/user/1000/pulse/native
+    # volumes:
+    #   - /run/user/1000/pulse:/run/user/1000/pulse
+
+volumes:
+  dodol-config:
+  dodol-logs:

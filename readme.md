@@ -139,15 +139,23 @@ The session resumption handle is captured and replayed now. A network blip, or s
 ## ⚡ Quick Start
 
 ```bash
-git clone https://github.com/FatihMakes/Mark-LIII.git
-cd Mark-LIII
-python setup.py        # installs deps for YOUR OS + the browser automation engine
+git clone https://github.com/Faber-Aritonang/Project_JarvisMark_LIII.git
+cd Project_JarvisMark_LIII
+pip install -e .             # install Dodol and all dependencies
+python install.py            # optional: also installs Playwright browsers
 python main.py
 ```
 
-`setup.py` only ever installs what your operating system needs — the Windows-only libraries are skipped automatically on macOS and Linux (and vice-versa). Prefer to do it by hand? `pip install -r requirements.txt` works too.
-
 > ⚠️ **Installation Note:** If you hit a `ModuleNotFoundError` for an OS-specific package, install it with `pip install <module_name>`. The optional **wake word** engine is *not* installed here — grab it in one click from **⚙ → WAKE WORD** inside the app.
+
+### 🐳 Docker
+
+```bash
+cp .env.example .env         # fill in your GEMINI_API_KEY
+docker compose up --build
+```
+
+The dashboard is available at `http://localhost:8000`. Voice features require host audio passthrough (see `docker-compose.yml`).
 
 ---
 
@@ -170,7 +178,13 @@ python main.py
 Dodol (Mark LIII)/
 ├── main.py                   # Core loop — Gemini Live session, audio I/O, wake/sleep state, tool dispatch
 ├── ui.py                     # PyQt6 HUD — reactive waveform, log panel, settings drawer, plugin manager, camera feed
-├── setup.py                  # OS-aware installer (skips wrong-OS dependencies)
+├── install.py                # OS-aware installer (skips wrong-OS dependencies)
+├── build.py                  # PyInstaller packaging script
+├── pyproject.toml            # Project config, dependencies, ruff, mypy, pytest
+├── Dockerfile                # Docker image for headless/dashboard mode
+├── docker-compose.yml        # One-command Docker deployment
+├── .env.example              # Environment variable template
+├── tests/                    # 148 unit tests — run with `pytest tests/`
 ├── plugins/
 │   ├── _template.py          # Copy this to write a new plugin — one file, drop in, done
 │   └── ...                   # Drop-in skills (each self-describes via a PLUGIN dict + run())
@@ -206,7 +220,11 @@ Dodol (Mark LIII)/
 │   ├── audio_devices.py      # Microphone / speaker list — filtered, measured, resolved by name
 │   ├── plugin_loader.py      # Plugin engine — discovery, validation, crash isolation
 │   ├── action_loader.py      # Bundled-action engine — the built-in twin of plugin_loader
+│   ├── logger.py             # Centralised logging — rotating file + console handler
+│   ├── llm_client.py         # Local LLM client — Ollama / OpenAI-compatible
 │   └── wake_word.py          # Local "Hey Dodol" detector — own thread, offline, opt-in
+├── dashboard/
+│   └── server.py             # FastAPI remote dashboard — QR pairing, phone control
 └── config/
     └── api_keys.json         # API key, OS setting, assistant name, user name, voice, UI colour, toggles
 ```
