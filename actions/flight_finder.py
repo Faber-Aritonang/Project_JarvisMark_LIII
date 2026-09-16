@@ -6,7 +6,11 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from config import is_windows, is_mac, is_linux
+from config import is_mac, is_windows
+from core.logger import get_logger
+
+logger = get_logger("actions.flight_finder")
+
 
 def _get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -19,7 +23,7 @@ API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(API_CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
 _MONTH_MAP: dict[str, int] = {
@@ -74,7 +78,7 @@ def _parse_date(raw: str) -> str:
         if re.match(r"\d{4}-\d{2}-\d{2}", result):
             return result
     except Exception as e:
-        print(f"[FlightFinder] ⚠️ Gemini date parse failed: {e}")
+        logger.warning("⚠️ Gemini date parse failed: %s", e, exc_info=True)
 
     for month_name, month_num in _MONTH_MAP.items():
         if month_name in lower:
@@ -85,7 +89,7 @@ def _parse_date(raw: str) -> str:
                 return f"{year}-{month_num:02d}-{day:02d}"
 
     # Last resort: today
-    print(f"[FlightFinder] ⚠️ Could not parse date '{raw}' — using today.")
+    logger.warning("⚠️ Could not parse date '%s' — using today.", raw)
     return today.strftime("%Y-%m-%d")
 
 _CABIN_CODE: dict[str, str] = {
@@ -116,7 +120,7 @@ def _build_google_flights_url(
     return (
         f"{base}"
         f"?q={trip}"
-        f"&tfs=CBwQAhoeEgoyMDI1LTAzLTE1agcIARIDSVNUcgcIARIDTEhS"   
+        f"&tfs=CBwQAhoeEgoyMDI1LTAzLTE1agcIARIDSVNUcgcIARIDTEhS"
         f"&curr=USD"
         f"&cabin={cabin_code}"
         f"&adults={passengers}"
@@ -133,13 +137,14 @@ def _search_flights_browser(
     cabin:       str,
 ) -> tuple[str, str]:
     import time
+
     from actions.browser_control import browser_control
 
     url = _build_google_flights_url(
         origin, destination, date, return_date, passengers, cabin
     )
 
-    print(f"[FlightFinder] 🌐 Opening: {url}")
+    logger.info("🌐 Opening: %s", url)
     browser_control({"action": "go_to", "url": url})
     time.sleep(5)
 
@@ -181,7 +186,7 @@ def _parse_flights_with_gemini(
         flights  = json.loads(text)
         return flights if isinstance(flights, list) else []
     except Exception as e:
-        print(f"[FlightFinder] ⚠️ Gemini parse failed: {e}")
+        logger.warning("⚠️ Gemini parse failed: %s", e, exc_info=True)
         return []
 
 def _format_spoken(
@@ -281,7 +286,7 @@ def _save_to_desktop(content: str, origin: str, destination: str) -> str:
     filepath = desktop / filename
 
     filepath.write_text(content, encoding="utf-8")
-    print(f"[FlightFinder] 💾 Saved: {filepath}")
+    logger.info("💾 Saved: %s", filepath)
 
     try:
         if is_windows():
@@ -291,7 +296,7 @@ def _save_to_desktop(content: str, origin: str, destination: str) -> str:
         else:
             subprocess.Popen(["xdg-open", str(filepath)])
     except Exception as e:
-        print(f"[FlightFinder] ⚠️ Could not open text editor: {e}")
+        logger.warning("⚠️ Could not open text editor: %s", e, exc_info=True)
 
     return str(filepath)
 
@@ -325,11 +330,7 @@ def flight_finder(parameters: dict, player=None, speak=None) -> str:
     if speak:
         speak(f"Searching flights from {origin} to {destination} on {date}, sir.")
 
-    print(
-        f"[FlightFinder] ▶️ {origin} → {destination} | {date}"
-        f"{' → ' + return_date if return_date else ''}"
-        f" | {cabin} | {passengers} pax"
-    )
+    logger.info("▶️ %s → %s | %s%s | %s | %d pax", origin, destination, date, ' → ' + return_date if return_date else '', cabin, passengers)
 
     try:
         raw_text, page_url = _search_flights_browser(
@@ -358,7 +359,7 @@ def flight_finder(parameters: dict, player=None, speak=None) -> str:
         return result
 
     except Exception as e:
-        print(f"[FlightFinder] ❌ {e}")
+        logger.error("❌ %s", e, exc_info=True)
         return f"Flight search failed, sir: {e}"
 
 

@@ -19,18 +19,42 @@ else:
     _WIN_HIDE: dict = {}
 
 from PyQt6.QtCore import (
-    QEasingCurve, QMimeData, QObject, QParallelAnimationGroup, QPointF,
-    QPropertyAnimation, QRect, QRectF, QSize, Qt, QTimer, QUrl, pyqtSignal,
+    QPointF,
+    QRectF,
+    Qt,
+    QTimer,
+    pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QBrush, QColor, QConicalGradient, QDragEnterEvent, QDropEvent, QFont,
-    QFontDatabase, QKeySequence, QLinearGradient, QPainter, QPainterPath,
-    QPen, QPixmap, QRadialGradient, QShortcut,
+    QBrush,
+    QColor,
+    QConicalGradient,
+    QDragEnterEvent,
+    QDropEvent,
+    QFont,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+    QShortcut,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
-    QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
+    QApplication,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
 # ── Which Mark this is ───────────────────────────────────────────────────────
@@ -136,8 +160,7 @@ def apply_ui_accent(accent_hex: str) -> bool:
         if grey:
             s *= 0.15
         r, g, b = colorsys.hsv_to_rgb((h + dh) % 1.0, s, v)
-        setattr(C, key, "#{:02x}{:02x}{:02x}".format(
-            int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5)))
+        setattr(C, key, f"#{int(r * 255 + 0.5):02x}{int(g * 255 + 0.5):02x}{int(b * 255 + 0.5):02x}")
     return True
 
 
@@ -227,9 +250,9 @@ class _SysMetrics:
     def __init__(self):
         self.cpu  = 0.0
         self.mem  = 0.0
-        self.net  = 0.0   
-        self.gpu  = -1.0  
-        self.tmp  = -1.0  
+        self.net  = 0.0
+        self.gpu  = -1.0
+        self.tmp  = -1.0
         self._lock = threading.Lock()
         self._last_net = psutil.net_io_counters()
         self._last_net_t = time.time()
@@ -443,8 +466,9 @@ class HudCanvas(QWidget):
 
     def _load_face(self, path: str):
         try:
-            from PIL import Image, ImageDraw
             import io
+
+            from PIL import Image, ImageDraw
             img = Image.open(path).convert("RGBA")
             sz  = min(img.size)
             img = img.resize((sz, sz), Image.LANCZOS)
@@ -1852,7 +1876,7 @@ class AudioDeviceOverlay(_HudOverlay):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        from core.audio_devices import list_devices, DEFAULT_LABEL
+        from core.audio_devices import DEFAULT_LABEL, list_devices
         from memory.config_manager import get_input_device, get_output_device
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -1953,8 +1977,10 @@ class AudioDeviceOverlay(_HudOverlay):
 
     def _apply(self):
         from memory.config_manager import (
-            get_input_device, get_output_device,
-            save_input_device, save_output_device,
+            get_input_device,
+            get_output_device,
+            save_input_device,
+            save_output_device,
         )
         new_in  = self._in_box.currentData()  or ""
         new_out = self._out_box.currentData() or ""
@@ -2642,8 +2668,9 @@ class RemoteKeyOverlay(QWidget):
             self._qr_label.setText("—")
             return
         try:
-            import qrcode as _qrmod
             from io import BytesIO
+
+            import qrcode as _qrmod
             qr = _qrmod.QRCode(
                 box_size=5, border=2,
                 error_correction=_qrmod.constants.ERROR_CORRECT_M,
@@ -3007,6 +3034,7 @@ class MainWindow(QMainWindow):
         """
         try:
             import math
+
             import PIL.Image
             import PIL.ImageDraw
             import PIL.ImageFilter
@@ -3108,7 +3136,7 @@ class MainWindow(QMainWindow):
         """
         # ── Option 1: pywin32 (pure Python COM, zero subprocess) ──────────
         try:
-            from win32com.client import Dispatch   # type: ignore
+            from win32com.client import Dispatch  # type: ignore
             sh = Dispatch("WScript.Shell")
             sc = sh.CreateShortCut(lnk)
             sc.TargetPath       = target

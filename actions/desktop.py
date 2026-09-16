@@ -1,13 +1,17 @@
 #desktop.py
-import os
-import sys
 import json
+import os
+import platform
 import shutil
 import subprocess
+import sys
 import tempfile
-import platform
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+from core.logger import get_logger
+
+logger = get_logger("actions.desktop")
 
 try:
     import pyautogui
@@ -25,9 +29,9 @@ def _get_base_dir() -> Path:
 
 def _get_api_key() -> str:
     path = _get_base_dir() / "config" / "api_keys.json"
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
-    
+
 def _get_desktop() -> Path:
     if _OS == "Linux":
         xdg = os.environ.get("XDG_DESKTOP_DIR", "")
@@ -57,7 +61,7 @@ def _build_sandbox() -> dict:
             "copytree":   shutil.copytree,
             "disk_usage": shutil.disk_usage,
         })(),
-        "os_path": os.path,  
+        "os_path": os.path,
     }
 
     if _PYAUTOGUI:
@@ -97,7 +101,7 @@ def _execute_generated_code(code: str, player=None) -> str:
         exec(compile(code, "<dodol_desktop>", "exec"), sandbox)
         return "\n".join(output_lines) if output_lines else "Done."
     except Exception as e:
-        print(f"[Desktop] Exec error: {e}\nCode:\n{code[:300]}")
+        logger.error("Exec error: %s\nCode:\n%s", e, code[:300], exc_info=True)
         return f"Execution error: {e}"
 
 
@@ -168,7 +172,7 @@ def set_wallpaper(image_path: str) -> str:
                     Image.open(path).convert("RGB").save(bmp_path, "BMP")
                     path = bmp_path
                 except ImportError:
-                    pass 
+                    pass
             ctypes.windll.user32.SystemParametersInfoW(20, 0, str(path), 3)
             return f"Wallpaper set: {path.name}"
 
@@ -245,7 +249,7 @@ def set_wallpaper_from_url(url: str) -> str:
         try:
             tmp.unlink()
         except Exception:
-            pass
+            logger.debug("Failed to delete temp wallpaper file", exc_info=True)
         return result
     except Exception as e:
         return f"Could not download wallpaper: {e}"
@@ -462,7 +466,7 @@ def desktop_control(
             if not actual_task:
                 return "Please describe what you want to do on the desktop."
 
-            print(f"[Desktop] Asking Gemini: {actual_task}")
+            logger.info("Asking Gemini: %s", actual_task)
             if player:
                 player.write_log("[Desktop] Generating action...")
 
@@ -476,7 +480,7 @@ def desktop_control(
             return "No action or task specified."
 
     except Exception as e:
-        print(f"[Desktop] Error: {e}")
+        logger.error("Error: %s", e, exc_info=True)
         return f"Desktop control error: {e}"
 
 

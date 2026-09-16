@@ -16,18 +16,21 @@ Supported types:
   pptx    → summarize, extract_text, to_pdf
 """
 
-import os
-import re
 import json
+import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from datetime import datetime
+
+from core.logger import get_logger
+
+logger = get_logger("actions.file_processor")
+
 
 def _get_api_key() -> str:
     config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
 
@@ -631,7 +634,7 @@ def _process_video(path: Path, action: str, params: dict, speak=None) -> str:
         end   = params.get("end",   "")
         if not _ffmpeg_available():
             return "ffmpeg not found."
-        out = _output_path(path, f"trim", path.suffix)
+        out = _output_path(path, "trim", path.suffix)
         try:
             cmd = ["ffmpeg", "-i", str(path), "-ss", str(start)]
             if end:
@@ -658,7 +661,7 @@ def _process_video(path: Path, action: str, params: dict, speak=None) -> str:
             return f"Extract frame failed: {e}"
 
     if action == "compress":
-        crf = int(params.get("quality", 28))  
+        crf = int(params.get("quality", 28))
         if not _ffmpeg_available():
             return "ffmpeg not found."
         out = _output_path(path, f"compressed_crf{crf}", ".mp4")
@@ -715,7 +718,8 @@ def _process_archive(path: Path, action: str, params: dict, speak=None) -> str:
 
     if action == "list":
         try:
-            import zipfile, tarfile
+            import tarfile
+            import zipfile
             ext = path.suffix.lower()
             if ext == ".zip":
                 with zipfile.ZipFile(path) as z:
@@ -792,8 +796,8 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
     instruction = parameters.get("instruction", "")
     params      = {**parameters, "instruction": instruction}
 
-    log_msg = f"[FileProcessor] {file_type.upper()} | {path.name} | action={action or 'auto'}"
-    print(log_msg)
+    log_msg = f"{file_type.upper()} | {path.name} | action={action or 'auto'}"
+    logger.info("%s", log_msg)
     if player:
         player.write_log(log_msg)
 
@@ -815,7 +819,7 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
         "csv":     lambda p, a, pm, s: _process_data(p, "csv",   a, pm, s),
         "excel":   lambda p, a, pm, s: _process_data(p, "excel", a, pm, s),
         "json":    _process_json,
-        "xml":     lambda p, a, pm, s: _process_json(p, a, pm, s),  
+        "xml":     lambda p, a, pm, s: _process_json(p, a, pm, s),
         "code":    _process_code,
         "audio":   _process_audio,
         "video":   _process_video,
@@ -831,8 +835,7 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
         result = handler(path, action, params, speak)
         return result or "Done."
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Processing failed", exc_info=True)
         return f"Processing failed: {e}"
 
 

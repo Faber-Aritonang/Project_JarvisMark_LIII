@@ -28,6 +28,7 @@ if _platform.system() == "Windows":
 # locale. `errors="replace"` is the belt and braces — a console that genuinely
 # cannot render a glyph shows a box instead of killing the process.
 import sys as _sys
+
 for _stream in (_sys.stdout, _sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -35,25 +36,28 @@ for _stream in (_sys.stdout, _sys.stderr):
         pass
 
 import asyncio
+import json
 import re
+import sys
 import threading
 import time
-import json
-import sys
-import traceback
 from datetime import datetime
 from pathlib import Path
 
-import sounddevice as sd
 import numpy as np
+import sounddevice as sd
 from google import genai
 from google.genai import types
-from ui import DodolUI
-from memory.memory_manager import (
-    load_memory, update_memory, format_memory_for_prompt,
-    save_session_summary, pop_last_session,
-    search_memory, set_trim_notifier,
+
+from actions.background_monitor import (
+    add_monitor,
+    list_monitors,
+    remove_monitor,
 )
+from actions.background_monitor import (
+    check_all as monitor_check_all,
+)
+from actions.proactive import ProactiveEngine
 
 # The file-backed tools (open_app, web_search, browser_control, …) are no longer
 # imported or declared here — they self-describe via a TOOL dict in their own
@@ -61,24 +65,44 @@ from memory.memory_manager import (
 # Only tools that are tied to live-session state stay inline in this file
 # (screen_process, close_camera, save_memory, manage_monitor, shutdown_dodol,
 # system_status).
-from actions.screen_processor  import _capture_camera, _capture_screen
-from actions.system_monitor    import SystemMonitor, get_system_status
-from actions.proactive         import ProactiveEngine
-from actions.background_monitor import (
-    add_monitor, remove_monitor, list_monitors, check_all as monitor_check_all,
+from actions.screen_processor import _capture_camera, _capture_screen
+from actions.system_monitor import SystemMonitor, get_system_status
+from actions.web_search import _news as _fetch_news_sync
+from core import audio_devices
+from core import confirm as confirm_gate
+from core import undo as undo_stack
+from core.action_loader import discover_actions
+from core.logger import get_logger
+from core.plugin_loader import discover_plugins
+from core.wake_word import (
+    WakeWordDetector,
 )
-from actions.web_search        import _news as _fetch_news_sync
-from memory.config_manager     import (
-    get_brief_enabled, get_voice, get_wake_word_enabled, save_wake_word_enabled,    get_input_device, get_output_device,
+from core.wake_word import (
+    install_and_download as wake_install,
 )
-from core.plugin_loader        import discover_plugins
-from core                      import undo as undo_stack
-from core                      import confirm as confirm_gate
-from core                      import audio_devices
-from core.action_loader        import discover_actions
-from core.wake_word            import (
-    WakeWordDetector, is_ready as wake_is_ready, install_and_download as wake_install,
+from core.wake_word import (
+    is_ready as wake_is_ready,
 )
+from memory.config_manager import (
+    get_brief_enabled,
+    get_input_device,
+    get_output_device,
+    get_voice,
+    get_wake_word_enabled,
+    save_wake_word_enabled,
+)
+from memory.memory_manager import (
+    format_memory_for_prompt,
+    load_memory,
+    pop_last_session,
+    save_session_summary,
+    search_memory,
+    set_trim_notifier,
+    update_memory,
+)
+from ui import DodolUI
+
+logger = get_logger("main")
 
 # How long the assistant stays awake with no user speech before it auto-sleeps
 # again (wake-word mode only).
@@ -94,7 +118,7 @@ API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
 LIVE_MODEL          = "models/gemini-3.1-flash-live-preview"
 CHANNELS            = 1
-SEND_SAMPLE_RATE    = 16000 
+SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE          = 1024
 
@@ -121,7 +145,7 @@ def _pcm_level(samples) -> float:
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(API_CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
 
@@ -137,7 +161,7 @@ def _load_system_prompt() -> str:
 
 _CTRL_RE = re.compile(r"<ctrl\d+>", re.IGNORECASE)
 
-def _clean_transcript(text: str) -> str:    
+def _clean_transcript(text: str) -> str:
     text = _CTRL_RE.sub("", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
     return text.strip()
@@ -408,7 +432,7 @@ class DodolLive:
         self._action_registry = discover_actions(
             actions_dir=_base_dir / "actions",
             reserved_names=_inline_names,
-            logger=lambda msg: print(f"[Actions] {msg}"),
+            logger=lambda msg: logger.info(f"[Actions] {msg}"),
         )
 
         # Plugins must not collide with either an inline tool or a discovered action.
@@ -416,7 +440,7 @@ class DodolLive:
         self._plugin_registry = discover_plugins(
             plugins_dir=_base_dir / "plugins",
             core_tool_names=_core_names,
-            logger=lambda msg: (print(f"[Plugins] {msg}"), self.ui.write_log(f"SYS: {msg}")),
+            logger=lambda msg: (logger.info(f"[Plugins] {msg}"), self.ui.write_log(f"SYS: {msg}")),
         )
         self.ui.get_plugins = self._plugin_registry.list_for_ui
         self.ui.get_plugin_settings = self._plugin_registry.settings_schemas  # ⚙ settings tab
@@ -449,7 +473,7 @@ class DodolLive:
         if self._wake_detector is None:
             self._wake_detector = WakeWordDetector(
                 on_detect=self._on_wake_detected,
-                logger=lambda m: (print(f"[Wake] {m}"), self.ui.write_log(f"SYS: {m}")),
+                logger=lambda m: (logger.info(f"[Wake] {m}"), self.ui.write_log(f"SYS: {m}")),
             )
         if not self._wake_detector.ready:
             return self._wake_detector.start()
@@ -541,12 +565,12 @@ class DodolLive:
                     turn_complete=True,
                 )
             except Exception as e:
-                print(f"[PluginSay] {e}")
+                logger.warning(f"[PluginSay] {e}")
 
         try:
             asyncio.run_coroutine_threadsafe(_say(), loop)
         except Exception as e:
-            print(f"[PluginSay] {e}")
+            logger.warning(f"[PluginSay] {e}")
 
     def request_reconnect(self, keep_context: bool = True, reason: str = ""):
         """Thread-safe: ask the run loop to tear down and rebuild the Live
@@ -646,7 +670,7 @@ class DodolLive:
                 except Exception:
                     break
             if drained:
-                print(f"[Dodol] ✋ Interrupted — {drained} audio chunks discarded")
+                logger.info(f"✋ Interrupted — {drained} audio chunks discarded")
         self.set_speaking(False)
         if self._turn_done_event:
             self._turn_done_event.clear()
@@ -756,7 +780,7 @@ class DodolLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        print(f"[Dodol] 🔧 {name}  {args}")
+        logger.info(f"🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
         if name == "save_memory":
@@ -765,7 +789,7 @@ class DodolLive:
             value    = args.get("value", "")
             if key and value:
                 update_memory({category: {key: {"value": value}}})
-                print(f"[Memory] 💾 save_memory: {category}/{key} = {value}")
+                logger.info(f"💾 save_memory: {category}/{key} = {value}")
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             return types.FunctionResponse(
@@ -799,7 +823,7 @@ class DodolLive:
                 _cooldown = 4.0  # seconds — covers echo window after speaking ends
                 if self._vision_busy or (_now - self._vision_last_time) < _cooldown:
                     _wait = max(0, _cooldown - (_now - self._vision_last_time))
-                    print(f"[Vision] ⏳ Cooldown active ({_wait:.1f}s remaining) — ignoring duplicate call")
+                    logger.info(f"⏳ Cooldown active ({_wait:.1f}s remaining) — ignoring duplicate call")
                     result = "Vision is still processing the previous request. I will not call this again."
                 else:
                     self._vision_busy      = True
@@ -810,11 +834,11 @@ class DodolLive:
                         img_b, mime_t = await loop.run_in_executor(None, _capture_camera)
                         self.ui.start_camera_stream()
                         self._vision_cam_active = True
-                        print(f"[Vision] 📷 Camera: {len(img_b):,} bytes")
+                        logger.info(f"📷 Camera: {len(img_b):,} bytes")
                         _stall = "camera"
                     else:
                         img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
-                        print(f"[Vision] 🖥️  Screen: {len(img_b):,} bytes")
+                        logger.info(f"🖥️  Screen: {len(img_b):,} bytes")
                         _stall = "screen"
                     self._pending_vision = (img_b, mime_t, user_text, angle)
                     result = (
@@ -856,7 +880,7 @@ class DodolLive:
                                 turn_complete=True,
                             )
                         except Exception:
-                            pass
+                            logger.debug("Shutdown goodbye failed", exc_info=True)
                     await asyncio.sleep(1.5)
                     import os as _os
                     _os._exit(0)
@@ -891,13 +915,13 @@ class DodolLive:
 
         except Exception as e:
             result = f"Tool '{name}' failed: {e}"
-            traceback.print_exc()
+            logger.error(f"Tool '{name}' failed", exc_info=True)
             self.speak_error(name, e)
 
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
 
-        print(f"[Dodol] 📤 {name} → {str(result)[:80]}")
+        logger.info(f"📤 {name} → {str(result)[:80]}")
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result}
@@ -919,7 +943,7 @@ class DodolLive:
             )
 
     async def _listen_audio(self):
-        print("[Dodol] 🎤 Mic started")
+        logger.info("🎤 Mic started")
         loop = asyncio.get_event_loop()
 
         def callback(indata, frames, time_info, status):
@@ -949,7 +973,7 @@ class DodolLive:
                 try:
                     self.ui.set_audio_level(_pcm_level(indata))
                 except Exception:
-                    pass
+                    logger.debug("set_audio_level failed in mic callback", exc_info=True)
 
         try:
             def _open_mic(dev):
@@ -969,7 +993,7 @@ class DodolLive:
             _mic_name = get_input_device()
             _mic_dev  = audio_devices.resolve(_mic_name, "input")
             if _mic_dev is not None:
-                print(f"[Dodol] 🎤 Input device: {_mic_name}")
+                logger.info(f"🎤 Input device: {_mic_name}")
             try:
                 _mic_stream = _open_mic(_mic_dev)
             except Exception as _e:
@@ -979,22 +1003,22 @@ class DodolLive:
                 # mean the assistant cannot hear at all.
                 if _mic_dev is None:
                     raise
-                print(f"[Dodol] ⚠️  Mic '{_mic_name}' failed: {_e} — using default")
+                logger.warning(f"⚠️  Mic '{_mic_name}' failed: {_e} — using default")
                 self.ui.write_log(
                     f"SYS: Microphone '{_mic_name}' unavailable — using system default."
                 )
                 _mic_stream = _open_mic(None)
 
             with _mic_stream:
-                print("[Dodol] 🎤 Mic stream open")
+                logger.info("🎤 Mic stream open")
                 while True:
                     await asyncio.sleep(0.1)
         except Exception as e:
-            print(f"[Dodol] ❌ Mic: {e}")
+            logger.error(f"Mic: {e}")
             raise
 
     async def _receive_audio(self):
-        print("[Dodol] 👂 Recv started")
+        logger.info("👂 Recv started")
         out_buf, in_buf = [], []
 
         try:
@@ -1011,7 +1035,7 @@ class DodolLive:
                     if _sru is not None:
                         if getattr(_sru, "resumable", False) and getattr(_sru, "new_handle", None):
                             if self._resume_handle is None:
-                                print("[Dodol] 🔗 Session resumption armed")
+                                logger.info("🔗 Session resumption armed")
                             self._resume_handle = _sru.new_handle
 
                     if response.data:
@@ -1083,7 +1107,7 @@ class DodolLive:
                                 img_b, mime_t, question, angle = self._pending_vision
                                 self._pending_vision = None
                                 b64 = _b64.b64encode(img_b).decode("ascii")
-                                print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle}) → main session")
+                                logger.info(f"📤 {len(img_b):,} bytes (angle={angle}) → main session")
                                 await self.session.send_client_content(
                                     turns={"role": "user", "parts": [
                                         {"inline_data": {"mime_type": mime_t, "data": b64}},
@@ -1111,24 +1135,23 @@ class DodolLive:
                     if response.tool_call:
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
-                            print(f"[Dodol] 📞 {fc.name}")
+                            logger.info(f"📞 {fc.name}")
                             fr = await self._execute_tool(fc)
                             fn_responses.append(fr)
                         await self.session.send_tool_response(
                             function_responses=fn_responses
                         )
         except Exception as e:
-            print(f"[Dodol] ❌ Recv: {e}")
-            traceback.print_exc()
+            logger.error(f"Recv: {e}", exc_info=True)
             raise
 
     async def _play_audio(self):
-        print("[Dodol] 🔊 Play started")
+        logger.info("🔊 Play started")
 
         _spk_name = get_output_device()
         _spk_dev  = audio_devices.resolve(_spk_name, "output")
         if _spk_dev is not None:
-            print(f"[Dodol] 🔊 Output device: {_spk_name}")
+            logger.info(f"🔊 Output device: {_spk_name}")
 
         def _open_spk(dev):
             st = sd.RawOutputStream(
@@ -1149,7 +1172,7 @@ class DodolLive:
             # cost the user their voice. Fall back to the default and say so.
             if _spk_dev is None:
                 raise
-            print(f"[Dodol] ⚠️  Output device '{_spk_name}' failed: {_e} — using default")
+            logger.warning(f"⚠️  Output device '{_spk_name}' failed: {_e} — using default")
             self.ui.write_log(f"SYS: Speaker '{_spk_name}' unavailable — using system default.")
             stream = _open_spk(None)
 
@@ -1160,7 +1183,7 @@ class DodolLive:
                         self.audio_in_queue.get(),
                         timeout=0.1
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     if (
                         self._turn_done_event
                         and self._turn_done_event.is_set()
@@ -1187,14 +1210,14 @@ class DodolLive:
                     self.ui.set_audio_level(_pcm_level(
                         np.frombuffer(bytes(batch), dtype=np.int16)))
                 except Exception:
-                    pass
+                    logger.debug("set_audio_level failed in play_audio", exc_info=True)
 
                 try:
                     await asyncio.to_thread(stream.write, bytes(batch))
                 except (RuntimeError, asyncio.CancelledError):
                     break   # executor shutting down — exit cleanly
         except Exception as e:
-            print(f"[Dodol] ❌ Play: {e}")
+            logger.error(f"Play: {e}")
             raise
         finally:
             self.set_speaking(False)
@@ -1283,7 +1306,7 @@ class DodolLive:
                     try:
                         await asyncio.wait_for(self._turn_done_event.wait(), timeout=6.0)
                         turn_waited = True
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         pass
 
                 # Extra buffer: turn_complete fires when Gemini finishes *generating*
@@ -1324,7 +1347,7 @@ class DodolLive:
                 )
                 self.ui.write_log("SYS: Briefing phase 2 (news) sent.")
             except Exception as e:
-                print(f"[Briefing] Phase 2 error: {e}")
+                logger.info(f"[Briefing] Phase 2 error: {e}")
                 self.ui.write_log(f"SYS: Briefing phase 2 failed: {e}")
 
         asyncio.create_task(_deliver_news())
@@ -1361,7 +1384,7 @@ class DodolLive:
             if summary:
                 save_session_summary(summary, lang)
         except Exception as e:
-            print(f"[Memory] ⚠️ Session summary failed: {e}")
+            logger.info(f"⚠️ Session summary failed: {e}")
 
     # ── System monitor ──────────────────────────────────────────────────────────
 
@@ -1383,7 +1406,7 @@ class DodolLive:
                     turn_complete=True,
                 )
             except Exception as e:
-                print(f"[Monitor] ⚠️ Could not send alert: {e}")
+                logger.warning(f"[Monitor] Could not send alert: {e}")
 
     # ── Background monitor ──────────────────────────────────────────────────────
 
@@ -1412,10 +1435,10 @@ class DodolLive:
                                 turns={"role": "user", "parts": [{"text": msg}]},
                                 turn_complete=True,
                             )
-                            self.ui.write_log(f"SYS: Monitor alert sent.")
+                            self.ui.write_log("SYS: Monitor alert sent.")
                             await asyncio.sleep(6)   # gap between consecutive alerts
                     except Exception as e:
-                        print(f"[Monitor] ⚠️ Background check error: {e}")
+                        logger.warning(f"[Monitor] Background check error: {e}")
             await asyncio.sleep(1800)     # check every 30 minutes
 
     # ── Proactive mode ──────────────────────────────────────────────────────────
@@ -1457,7 +1480,7 @@ class DodolLive:
                 )
                 self.ui.write_log("SYS: Proactive check-in.")
             except Exception as e:
-                print(f"[Proactive] ⚠️ {e}")
+                logger.warning(f"[Proactive] {e}")
 
     # ── Phone audio relay ────────────────────────────────────────────────────────
 
@@ -1467,7 +1490,7 @@ class DodolLive:
         while True:
             try:
                 chunk = await asyncio.wait_for(q.get(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # No audio for 1 s → phone mic inactive, give PC mic back
                 self._phone_active = False
                 continue
@@ -1510,11 +1533,11 @@ class DodolLive:
                     )
                     self.ui.write_log(f"[Web]: {text}")
                 else:
-                    print(f"[Dashboard] Dropped command (no session): {text}")
-            except asyncio.TimeoutError:
+                    logger.info(f"[Dashboard] Dropped command (no session): {text}")
+            except TimeoutError:
                 pass
             except Exception as e:
-                print(f"[Dashboard] Command error: {e}")
+                logger.info(f"[Dashboard] Command error: {e}")
                 await asyncio.sleep(0.5)
 
     # ── main loop ───────────────────────────────────────────────────────────
@@ -1552,12 +1575,12 @@ class DodolLive:
             # Runs for the whole lifetime, not just inside an active session
             asyncio.create_task(self._process_dashboard_commands())
         except Exception as e:
-            print(f"[Dashboard] Disabled: {e}")
+            logger.info(f"[Dashboard] Disabled: {e}")
             self._dashboard = None
 
         while True:
             try:
-                print("[Dodol] Connecting...")
+                logger.info("Connecting...")
                 self.ui.set_state("THINKING")
                 _resumed_with = self._resume_handle is not None
                 config = self._build_config()
@@ -1587,7 +1610,7 @@ class DodolLive:
                     self._vision_last_time     = 0.0
                     self._interrupted          = False
 
-                    print("[Dodol] Connected.")
+                    logger.info("Connected.")
                     if _resumed_with:
                         # Say it plainly: the difference between "it reconnected"
                         # and "it reconnected and still knows what we were doing"
@@ -1642,7 +1665,7 @@ class DodolLive:
                 # Voluntary reconnect (voice change) — not an error. Rebuild the
                 # session immediately with no backoff and no scary logs.
                 if _is_reconnect_signal(e):
-                    print("[Dodol] Voluntary reconnect requested.")
+                    logger.info("Voluntary reconnect requested.")
                     if not _keep_context_of(e):
                         # A deliberate clean slate (voice change) — drop the
                         # handle so the next connect really does start empty.
@@ -1662,15 +1685,14 @@ class DodolLive:
                     or "INVALID_ARGUMENT" in str(e)
                     or "NOT_FOUND" in str(e)
                 ):
-                    print("[Dodol] 🔗 Resumption handle rejected — starting a fresh session")
+                    logger.info("🔗 Resumption handle rejected — starting a fresh session")
                     self.ui.write_log("SYS: Could not restore the conversation — starting fresh.")
                     self._resume_handle = None
                     self._conn_backoff = 0
                     continue
 
                 err_str = str(e)
-                print(f"[Dodol] Error ({type(e).__name__}): {e}")
-                traceback.print_exc()
+                logger.error(f"Error ({type(e).__name__}): {e}", exc_info=True)
 
                 # Proactive audio rejected by the server (preview API drift) —
                 # drop it and reconnect with the plain config.
@@ -1693,7 +1715,7 @@ class DodolLive:
                     self.ui.prompt_reconfig()
                     while not self.ui._win._ready:
                         await asyncio.sleep(1)
-                    print("[Dodol] New API key saved — reconnecting...")
+                    logger.info("New API key saved — reconnecting...")
                     _conn_backoff = 3
                     continue
 
@@ -1724,7 +1746,7 @@ class DodolLive:
                 await self._dashboard.broadcast({"type": "status", "state": "sleeping"})
 
             delay = getattr(self, "_conn_backoff", 3)
-            print(f"[Dodol] Reconnecting in {delay}s...")
+            logger.info(f"Reconnecting in {delay}s...")
             await asyncio.sleep(delay)
 
 def main():
@@ -1736,7 +1758,7 @@ def main():
         try:
             asyncio.run(dodol.run())
         except KeyboardInterrupt:
-            print("\n🔴 Shutting down...")
+            logger.info("🔴 Shutting down...")
 
     threading.Thread(target=runner, daemon=True).start()
     ui.root.mainloop()

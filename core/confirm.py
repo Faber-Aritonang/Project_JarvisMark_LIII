@@ -37,8 +37,12 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
+
+from core.logger import get_logger
+
+logger = get_logger("confirm")
 
 # A pending confirmation is abandoned after this long. Chosen to outlast a
 # normal "hang on, let me look at the screen" pause without leaving a live
@@ -55,14 +59,14 @@ class _Pending:
     at:      float
 
 
-_pending: Optional[_Pending] = None
+_pending: _Pending | None = None
 _lock = threading.Lock()
 
 # Set once at startup by main.py. Signature: (title, detail) -> None for show,
 # and () -> None for hide. Both are marshalled onto the Qt thread by the UI.
-_show_cb: Optional[Callable[[str, str], None]] = None
-_hide_cb: Optional[Callable[[], None]] = None
-_log_cb:  Optional[Callable[[str], None]] = None
+_show_cb: Callable[[str, str], None] | None = None
+_hide_cb: Callable[[], None] | None = None
+_log_cb:  Callable[[str], None] | None = None
 
 
 def bind(show, hide, log=None) -> None:
@@ -76,6 +80,7 @@ def _log(msg: str) -> None:
         try:
             _log_cb(msg)
         except Exception:
+            logger.debug("Log callback failed", exc_info=True)
             pass
 
 
@@ -127,6 +132,7 @@ def resolve(accepted: bool) -> None:
         try:
             _hide_cb()
         except Exception:
+            logger.debug("Hide callback failed", exc_info=True)
             pass
 
     if p is None:

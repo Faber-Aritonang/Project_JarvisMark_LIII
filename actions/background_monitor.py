@@ -7,8 +7,10 @@ import hashlib
 import json
 import re
 from datetime import datetime
-from pathlib import Path
 
+from core.logger import get_logger
+
+logger = get_logger("actions.background_monitor")
 
 # ── Blocked categories (never monitor regardless of what user says) ────────────
 
@@ -43,7 +45,7 @@ def _load() -> dict:
     return data if isinstance(data, dict) else {}
 
 def _save(monitors: dict) -> None:
-    from memory.memory_manager import load_memory, MEMORY_PATH, _lock
+    from memory.memory_manager import MEMORY_PATH, _lock, load_memory
     memory = load_memory()
     memory["monitors"] = monitors
     with _lock:
@@ -73,7 +75,7 @@ def add_monitor(topic: str) -> str:
         "last_hash":  "",
     }
     _save(monitors)
-    print(f"[Monitor] ➕ Added: {topic}")
+    logger.info("➕ Added: %s", topic)
     return f"Now monitoring: {topic}"
 
 
@@ -148,10 +150,10 @@ def check_all() -> list[str]:
             if source:
                 parts.append(f"Source: {source}")
             alerts.append("\n".join(parts))
-            print(f"[Monitor] 🔔 New headline for '{topic}': {title[:60]}")
+            logger.info("🔔 New headline for '%s': %s", topic, title[:60])
 
         except Exception as e:
-            print(f"[Monitor] ⚠️ Check failed for '{topic}': {e}")
+            logger.warning("⚠️ Check failed for '%s': %s", topic, e, exc_info=True)
 
     if changed:
         _save(monitors)

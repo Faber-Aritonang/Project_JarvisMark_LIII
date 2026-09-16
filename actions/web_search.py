@@ -3,6 +3,11 @@ import json
 import sys
 from pathlib import Path
 
+from core.logger import get_logger
+
+logger = get_logger("actions.web_search")
+
+
 def _get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
@@ -14,7 +19,7 @@ API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(API_CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
 
@@ -74,7 +79,7 @@ def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
                     "source":  r.get("source", ""),
                 })
     except Exception as e:
-        print(f"[WebSearch] ⚠️ DDG news() failed ({e}) — falling back to text search")
+        logger.warning("⚠️ DDG news() failed (%s) — falling back to text search", e, exc_info=True)
         results = _ddg_search(query, max_results=max_results)
     return results
 
@@ -120,6 +125,7 @@ def _gemini_headlines(n: int = 5) -> tuple[list[str], str]:
     Returns (headline_list, raw_text_for_display).
     """
     import re
+
     from google import genai
 
     client = genai.Client(api_key=_get_api_key())
@@ -157,7 +163,7 @@ def _search(query: str) -> str:
     try:
         return _gemini_search(query)
     except Exception as e:
-        print(f"[WebSearch] ⚠️ Gemini failed ({e}) — trying DDG...")
+        logger.warning("⚠️ Gemini failed (%s) — trying DDG...", e, exc_info=True)
         results = _ddg_search(query)
         return _format_ddg(query, results)
 
@@ -193,7 +199,7 @@ def _news(query: str) -> str:
         try:
             _store(_gemini_search(gemini_query))
         except Exception as e:
-            print(f"[WebSearch] ⚠️ Gemini news failed ({e})")
+            logger.warning("⚠️ Gemini news failed (%s)", e, exc_info=True)
             _store("")
 
     def _try_ddg():
@@ -201,7 +207,7 @@ def _news(query: str) -> str:
             results = _ddg_news(ddg_query, max_results=8)
             _store(_format_news(ddg_query, results))
         except Exception as e:
-            print(f"[WebSearch] ⚠️ DDG news failed ({e})")
+            logger.warning("⚠️ DDG news failed (%s)", e, exc_info=True)
             _store("")
 
     threading.Thread(target=_try_gemini, daemon=True).start()
@@ -223,7 +229,7 @@ def _research(query: str) -> str:
     try:
         return _gemini_search(research_query)
     except Exception as e:
-        print(f"[WebSearch] ⚠️ Research Gemini failed ({e}) — DDG fallback...")
+        logger.warning("⚠️ Research Gemini failed (%s) — DDG fallback...", e, exc_info=True)
         results = _ddg_search(query, max_results=10)
         return _format_ddg(query, results)
 
@@ -234,7 +240,7 @@ def _price(query: str) -> str:
     try:
         return _gemini_search(price_query)
     except Exception as e:
-        print(f"[WebSearch] ⚠️ Price Gemini failed ({e}) — DDG fallback...")
+        logger.warning("⚠️ Price Gemini failed (%s) — DDG fallback...", e, exc_info=True)
         results = _ddg_search(f"{query} price buy", max_results=6)
         return _format_ddg(query, results)
 
@@ -247,7 +253,7 @@ def _compare(items: list[str], aspect: str) -> str:
     try:
         return _gemini_search(query)
     except Exception as e:
-        print(f"[WebSearch] ⚠️ Gemini compare failed: {e} — falling back to DDG")
+        logger.warning("⚠️ Gemini compare failed: %s — falling back to DDG", e, exc_info=True)
 
     all_results: dict[str, list] = {}
     for item in items:
@@ -290,7 +296,7 @@ def web_search(
     if player:
         player.write_log(f"[Search:{mode}] {query or ', '.join(items)}")
 
-    print(f"[WebSearch] 🔍 mode={mode!r}  query={query!r}")
+    logger.info("🔍 mode=%r  query=%r", mode, query)
 
     try:
         if mode == "compare" and items:
@@ -304,7 +310,7 @@ def web_search(
         return _search(query)
 
     except Exception as e:
-        print(f"[WebSearch] ❌ All backends failed: {e}")
+        logger.error("❌ All backends failed: %s", e, exc_info=True)
         return f"Search failed: {e}"
 
 

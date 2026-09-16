@@ -1,11 +1,14 @@
 import json
-import os
 import platform
 import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+from core.logger import get_logger
+
+logger = get_logger("actions.reminder")
 
 _CNW: dict = (
     {"creationflags": subprocess.CREATE_NO_WINDOW}
@@ -45,7 +48,7 @@ def _sanitise(text: str, max_len: int = 200) -> str:
 
 def _write_notify_script(task_name: str, message: str, os_name: str) -> Path:
     script_path = _scripts_dir() / f"{task_name}.py"
-    msg_literal = json.dumps(message)  
+    msg_literal = json.dumps(message)
 
     if os_name == "windows":
         notify_block = f"""
@@ -188,13 +191,13 @@ def _schedule_windows(target_dt: datetime, task_name: str,
     try:
         xml_path.unlink(missing_ok=True)
     except Exception:
-        pass
+        logger.debug("Failed to delete XML path", exc_info=True)
 
     if result.returncode != 0:
         script_path.unlink(missing_ok=True)
         err = (result.stderr or result.stdout).strip()
-        print(f"[Reminder] ❌ schtasks: {err}")
-        return ""  
+        logger.error("❌ schtasks: %s", err)
+        return ""
 
     return task_name
 
@@ -243,7 +246,7 @@ def _schedule_mac(target_dt: datetime, task_name: str,
     if result.returncode != 0:
         plist_path.unlink(missing_ok=True)
         script_path.unlink(missing_ok=True)
-        print(f"[Reminder] ❌ launchctl: {result.stderr.strip()}")
+        logger.error("❌ launchctl: %s", result.stderr.strip())
         return ""
 
     return label
@@ -267,7 +270,7 @@ def _schedule_linux(target_dt: datetime, task_name: str,
         )
         if result.returncode == 0:
             return task_name
-        print(f"[Reminder] ⚠️ systemd-run failed: {result.stderr.strip()}, trying 'at'")
+        logger.warning("⚠️ systemd-run failed: %s, trying 'at'", result.stderr.strip())
 
     if shutil.which("at"):
         at_time = target_dt.strftime("%H:%M %Y-%m-%d")
@@ -278,10 +281,10 @@ def _schedule_linux(target_dt: datetime, task_name: str,
         )
         if result.returncode == 0:
             return task_name
-        print(f"[Reminder] ❌ at: {result.stderr.strip()}")
+        logger.error("❌ at: %s", result.stderr.strip())
         return ""
 
-    print("[Reminder] ❌ Neither systemd-run nor at found on this Linux system.")
+    logger.error("❌ Neither systemd-run nor at found on this Linux system.")
     return ""
 
 def reminder(
@@ -324,7 +327,7 @@ def reminder(
             job_id = _schedule_linux(target_dt, task_name, script_path)
     except Exception as e:
         script_path.unlink(missing_ok=True)
-        print(f"[Reminder] ❌ Scheduling exception: {e}")
+        logger.error("❌ Scheduling exception: %s", e, exc_info=True)
         return "Something went wrong while scheduling the reminder."
 
     if not job_id:

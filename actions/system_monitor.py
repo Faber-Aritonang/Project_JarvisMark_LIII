@@ -8,6 +8,10 @@ import time
 
 import psutil
 
+from core.logger import get_logger
+
+logger = get_logger("actions.system_monitor")
+
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
 DEFAULT_THRESHOLDS = {
@@ -65,6 +69,7 @@ def _nvml_gpu() -> float:
         _nvml_ok = True
         return float(u.gpu)
     except Exception:
+        logger.debug("NVML GPU query failed", exc_info=True)
         _nvml_ok = False
         return -1.0
 
@@ -77,7 +82,7 @@ def _get_gpu_usage() -> float:
         h = pynvml.nvmlDeviceGetHandleByIndex(0)
         return float(pynvml.nvmlDeviceGetUtilizationRates(h).gpu)
     except Exception:
-        pass
+        logger.debug("pynvml GPU query failed", exc_info=True)
 
     return _nvml_gpu()
 
@@ -94,7 +99,7 @@ def _get_cpu_temp() -> float:
             if entries:
                 return entries[0].current
     except Exception:
-        pass
+        logger.debug("psutil temperature query failed", exc_info=True)
 
     # Windows: wmi module (pure Python COM, zero subprocess)
     if _OS == "Windows":
@@ -105,7 +110,7 @@ def _get_cpu_temp() -> float:
             if tz:
                 return (tz[0].CurrentTemperature / 10.0) - 273.15
         except Exception:
-            pass
+            logger.debug("WMI temperature query failed", exc_info=True)
 
     return -1.0
 
@@ -158,6 +163,7 @@ class SystemMonitor:
             temp = _get_cpu_temp()
             gpu  = _get_gpu_usage()
         except Exception:
+            logger.debug("System metrics read failed", exc_info=True)
             return None
 
         alerts: list[str] = []

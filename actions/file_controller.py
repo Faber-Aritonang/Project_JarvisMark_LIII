@@ -1,8 +1,8 @@
 import os
-import shutil
 import platform
-from pathlib import Path
+import shutil
 from datetime import datetime
+from pathlib import Path
 
 try:
     import send2trash
@@ -10,7 +10,10 @@ try:
 except ImportError:
     _SEND2TRASH = False
 
+from core.logger import get_logger
 from core.undo import push_undo
+
+logger = get_logger("actions.file_controller")
 
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
@@ -85,7 +88,7 @@ def _restore_from_trash(original: Path) -> str:
                         item.InvokeVerb("UNDELETE")
                         return f"'{original.name}' restored from the Recycle Bin."
         except Exception as e:
-            print(f"[file] Recycle Bin restore failed: {e}")
+            logger.warning("Recycle Bin restore failed: %s", e, exc_info=True)
     return (f"'{original.name}' is in the Recycle Bin — I could not pull it back "
             f"automatically, but it is there and can be restored by hand.")
 
@@ -103,6 +106,7 @@ def _is_safe_path(target: Path) -> bool:
             for root in _SAFE_ROOTS
         )
     except Exception:
+        logger.debug("Path safety check failed", exc_info=True)
         return False
 
 def _get_desktop() -> Path:
@@ -582,7 +586,7 @@ def organize_desktop() -> str:
                             shutil.move(str(moved_to), str(origin))
                             restored += 1
                     except Exception as e:
-                        print(f"[file] undo organize: {moved_to.name}: {e}")
+                        logger.warning("undo organize: %s: %s", moved_to.name, e, exc_info=True)
                 # Clear away the folders we created, but only while they are
                 # empty — anything the user put in since stays.
                 for folder in {m.parent for _o, m in entries}:
@@ -590,7 +594,7 @@ def organize_desktop() -> str:
                         if folder.exists() and folder.is_dir() and not any(folder.iterdir()):
                             folder.rmdir()
                     except Exception:
-                        pass
+                        logger.debug("Failed to remove organize folder", exc_info=True)
                 return f"{restored} file(s) put back on the desktop."
             push_undo(f"organized the desktop ({len(journal)} files)", _undo_organize)
 

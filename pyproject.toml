@@ -1,0 +1,137 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "dodol"
+version = "53.0.0"
+description = "Dodol — Cross-platform personal AI assistant powered by Gemini Live API"
+readme = "readme.md"
+license = {text = "CC-BY-NC-4.0"}
+requires-python = ">=3.11"
+keywords = ["ai", "assistant", "voice", "gemini", "personal-assistant"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    # Core: UI, audio, Gemini Live
+    "PyQt6>=6.5",
+    "sounddevice>=0.4.6",
+    "numpy>=1.24",
+    "google-genai>=2.8.0",
+    # Web search & browser control
+    "requests>=2.28",
+    "beautifulsoup4>=4.12",
+    "duckduckgo-search>=4.0",
+    "playwright>=1.40",
+    # Automation / input control
+    "pyautogui>=0.9.54",
+    "pyperclip>=1.8",
+    "pygetwindow>=0.0.9",
+    # Vision & media
+    "pillow>=10.0",
+    "opencv-python>=4.8",
+    "mss>=9.0",
+    # System, files & documents
+    "psutil>=5.9",
+    "send2trash>=1.8",
+    "youtube-transcript-api>=0.6",
+    "python-pptx>=0.6.21",
+    "openpyxl>=3.1",
+    # Remote dashboard
+    "fastapi>=0.104",
+    "uvicorn[standard]>=0.24",
+    "cryptography>=41.0",
+    "python-multipart>=0.0.6",
+    "qrcode[pil]>=7.4",
+    # Plugin extras
+    "google-api-python-client>=2.100",
+    "google-auth-oauthlib>=1.1",
+    "tinytuya>=1.12",
+]
+
+[project.optional-dependencies]
+windows = [
+    "comtypes",
+    "pycaw",
+    "win10toast",
+    "pywinauto",
+    "pywin32",
+    "wmi",
+]
+wake = [
+    "openwakeword",
+]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+dodol = "main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort (import sorting)
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "E741",   # ambiguous variable name (l, O, I)
+    "E701",   # multiple statements on one line (colon) — intentional style
+    "E702",   # multiple statements on one line (semicolon) — intentional style
+    "E402",   # module import not at top — conditional imports by design
+    "SIM108", # ternary operator — not always clearer
+    "SIM105", # contextlib.suppress — try/except/pass is clearer here
+    "SIM102", # collapsible-if — nested ifs are intentional for readability
+    "SIM109", # compare-with-tuple — explicit tuple comparison is fine
+    "SIM112", # uncapitalized env vars — case-sensitive by design
+    "SIM115", # open-file-with-context-handler — sometimes not possible
+    "SIM201", # negate-equal-op — `!= None` is clearer than `is not None` in some contexts
+    "B008",   # function call in default argument (FastAPI Depends)
+    "B904",   # raise without from — not always needed in this codebase
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "actions", "memory", "plugins"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

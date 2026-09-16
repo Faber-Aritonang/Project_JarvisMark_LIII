@@ -21,8 +21,12 @@ import queue
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
+
+from core.logger import get_logger
+
+logger = get_logger("wake_word")
 
 # Pretrained openwakeword model that listens for "Hey Dodol".
 # NOTE: The underlying model file is named "hey_jarvis" (pretrained); the
@@ -69,7 +73,7 @@ def is_ready() -> bool:
         return False
 
 
-def install_and_download(logger: Callable[[str], None] = print) -> tuple[bool, str]:
+def install_and_download(_cb_logger: Callable[[str], None] = print) -> tuple[bool, str]:
     """
     One-click setup for the UI button: pip-install openwakeword if missing, then
     download the wake model. Returns (ok, message). Never raises — every failure
@@ -77,7 +81,7 @@ def install_and_download(logger: Callable[[str], None] = print) -> tuple[bool, s
     """
     try:
         if not is_installed():
-            logger("Wake word: installing openwakeword (one-time)…")
+            _cb_logger("Wake word: installing openwakeword (one-time)…")
             r = subprocess.run(
                 [sys.executable, "-m", "pip", "install", "openwakeword"],
                 capture_output=True, text=True,
@@ -86,7 +90,7 @@ def install_and_download(logger: Callable[[str], None] = print) -> tuple[bool, s
                 tail = (r.stderr or r.stdout or "").strip().splitlines()[-1:] or [""]
                 return False, f"pip install failed: {tail[0][:160]}"
         # Download the pretrained melspectrogram/embedding + wake models.
-        logger("Wake word: downloading models…")
+        _cb_logger("Wake word: downloading models…")
         try:
             import openwakeword.utils as _u
             try:
@@ -98,7 +102,7 @@ def install_and_download(logger: Callable[[str], None] = print) -> tuple[bool, s
 
         if not is_ready():
             return False, "installed, but the wake model could not be loaded."
-        logger("Wake word: ready.")
+        _cb_logger("Wake word: ready.")
         return True, "Wake word installed and ready."
     except Exception as e:
         return False, f"setup error: {e}"
@@ -113,10 +117,10 @@ class WakeWordDetector:
 
     def __init__(self, on_detect: Callable[[], None],
                  threshold: float = DEFAULT_THRESHOLD,
-                 logger: Callable[[str], None] = print):
+                 _cb_logger: Callable[[str], None] = print):
         self._on_detect = on_detect
         self._threshold = threshold
-        self._logger    = logger
+        self._cb_logger = _cb_logger
         self._queue: queue.Queue = queue.Queue(maxsize=50)
         self._thread: threading.Thread | None = None
         self._running = False
@@ -132,14 +136,14 @@ class WakeWordDetector:
             from openwakeword.model import Model
             self._model = Model(wakeword_models=[WAKE_MODEL], inference_framework="onnx")
         except Exception as e:
-            self._logger(f"Wake word: could not load model — {e}")
+            self._cb_logger(f"Wake word: could not load model — {e}")
             self._model = None
             return False
         self._running = True
         self._ready = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="WakeWordThread")
         self._thread.start()
-        self._logger("Wake word: listening for 'Hey Dodol'.")
+        self._cb_logger("Wake word: listening for 'Hey Dodol'.")
         return True
 
     def stop(self) -> None:
@@ -148,6 +152,7 @@ class WakeWordDetector:
         try:
             self._queue.put_nowait(None)
         except Exception:
+            logger.debug("Could not drain wake word queue on stop", exc_info=True)
             pass
         self._model = None
         self._ready = False
@@ -168,6 +173,7 @@ class WakeWordDetector:
         except queue.Full:
             pass
         except Exception:
+            logger.debug("Wake word feed() error", exc_info=True)
             pass
 
     def _loop(self) -> None:
@@ -192,9 +198,9 @@ class WakeWordDetector:
                     try:
                         self._on_detect()
                     except Exception as e:
-                        self._logger(f"Wake word: on_detect error — {e}")
+                        self._cb_logger(f"Wake word: on_detect error — {e}")
             except Exception as e:
-                self._logger(f"Wake word: inference error — {e}")
+                self._cb_logger(f"Wake word: inference error — {e}")
 
     def _drain(self) -> None:
         try:

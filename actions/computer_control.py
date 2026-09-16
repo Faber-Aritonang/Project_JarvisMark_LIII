@@ -11,9 +11,13 @@ if platform.system() == "Windows":
     _WIN_HIDE: dict = {"creationflags": subprocess.CREATE_NO_WINDOW}
 else:
     _WIN_HIDE: dict = {}
-import time
 import random
+import time
 from pathlib import Path
+
+from core.logger import get_logger
+
+logger = get_logger("actions.computer_control")
 
 try:
     import pyautogui
@@ -43,6 +47,7 @@ def _load_config() -> dict:
     try:
         return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
+        logger.debug("Failed to load config", exc_info=True)
         return {}
 
 def _platform_os() -> str:
@@ -72,7 +77,7 @@ def _safe_screenshot_path(requested: str | None) -> Path:
                 p.parent.mkdir(parents=True, exist_ok=True)
                 return p
     except Exception:
-        pass
+        logger.debug("Path not in safe roots", exc_info=True)
     return fallback
 
 def _require_pyautogui():
@@ -151,7 +156,7 @@ def _user_profile() -> dict:
             identity = data.get("identity", {})
             return {k: v.get("value", "") for k, v in identity.items()}
     except Exception:
-        pass
+        logger.debug("Failed to read user profile", exc_info=True)
     return {}
 
 def _type(text: str, interval: float = 0.03) -> str:
@@ -295,7 +300,7 @@ def _focus_window(title: str) -> str:
                 time.sleep(0.3)
                 return f"Focused window: {title}"
         except FileNotFoundError:
-            pass
+            logger.debug("wmctrl not found, trying xdotool", exc_info=True)
         try:
             result = subprocess.run(
                 ["xdotool", "search", "--name", title, "windowactivate"],
@@ -313,7 +318,7 @@ def _focus_window(title: str) -> str:
 def _screen_find(description: str) -> tuple[int, int] | None:
     api_key = _get_api_key()
     if not api_key:
-        print("[ComputerControl] ⚠️ No API key for screen_find")
+        logger.warning("⚠️ No API key for screen_find")
         return None
 
     try:
@@ -352,7 +357,7 @@ def _screen_find(description: str) -> tuple[int, int] | None:
             return int(match.group(1)), int(match.group(2))
 
     except Exception as e:
-        print(f"[ComputerControl] ⚠️ screen_find failed: {e}")
+        logger.warning("⚠️ screen_find failed: %s", e, exc_info=True)
 
     return None
 
@@ -413,7 +418,7 @@ def computer_control(
     if player:
         player.write_log(f"[Computer] {action}")
 
-    print(f"[ComputerControl] ▶ {action}  {params}")
+    logger.info("▶ %s  %s", action, params)
 
     try:
 
@@ -495,7 +500,7 @@ def computer_control(
         if action == "random_data":
             dt     = params.get("type", "name")
             result = _random_data(dt)
-            print(f"[ComputerControl] 🎲 random {dt} → {result}")
+            logger.info("🎲 random %s → %s", dt, result)
             return result
 
         if action == "user_data":
@@ -504,13 +509,13 @@ def computer_control(
             value   = profile.get(field, "")
             if not value:
                 value = _random_data(field)
-                print(f"[ComputerControl] ⚠️ No '{field}' in memory, using random: {value}")
+                logger.warning("⚠️ No '%s' in memory, using random: %s", field, value)
             return value
 
         return f"Unknown action: '{action}'"
 
     except Exception as e:
-        print(f"[ComputerControl] ❌ {action}: {e}")
+        logger.error("❌ %s: %s", action, e, exc_info=True)
         return f"computer_control '{action}' failed: {e}"
 
 

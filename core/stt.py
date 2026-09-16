@@ -5,7 +5,12 @@ Whisper  – offline transcription via faster-whisper (VAD-buffered)
 Vosk     – offline streaming transcription (lighter)
 """
 import json
+
 import numpy as np
+
+from core.logger import get_logger
+
+logger = get_logger("stt")
 
 
 class WhisperSTT:
@@ -13,8 +18,9 @@ class WhisperSTT:
 
     def __init__(self, model_name: str = "base", language: str | None = None):
         import os
+
         from faster_whisper import WhisperModel
-        print(f"[STT] Loading Whisper '{model_name}'…")
+        logger.info("Loading Whisper '%s'…", model_name)
         try:
             import torch
             device  = "cuda" if torch.cuda.is_available() else "cpu"
@@ -33,7 +39,7 @@ class WhisperSTT:
                 "does not exist", "outgoing", "local_files_only",
             )
             if any(k in _e for k in _offline_keywords):
-                print(f"[STT] Whisper '{model_name}' not in local cache — downloading (one-time, internet required)…")
+                logger.info("Whisper '%s' not in local cache — downloading (one-time, internet required)…", model_name)
                 os.environ.pop("HF_HUB_OFFLINE",      None)
                 os.environ.pop("TRANSFORMERS_OFFLINE", None)
                 os.environ.pop("HF_DATASETS_OFFLINE",  None)
@@ -50,7 +56,7 @@ class WhisperSTT:
                 raise
 
         self._language = None if (not language or language.strip().lower() == "auto") else language.strip().lower()
-        print(f"[STT] Whisper '{model_name}' ready ({device})")
+        logger.info("Whisper '%s' ready (%s)", model_name, device)
 
     def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe a float32 mono 16 kHz numpy array. Returns transcript string."""
@@ -66,7 +72,7 @@ class WhisperSTT:
             )
             return " ".join(s.text for s in segments).strip()
         except Exception as e:
-            print(f"[STT] Transcription error: {e}")
+            logger.error(f"Transcription error: {e}")
             raise
 
 
@@ -74,15 +80,15 @@ class VoskSTT:
     """Streaming transcription using Vosk."""
 
     def __init__(self, model_path: str | None = None, language: str = "en-us"):
-        from vosk import Model, KaldiRecognizer
-        print("[STT] Loading Vosk model…")
+        from vosk import KaldiRecognizer, Model
+        logger.info("Loading Vosk model…")
         if model_path:
             model = Model(model_path)
         else:
             lang  = language.strip().lower() if language and language.strip().lower() != "auto" else "en-us"
             model = Model(lang=lang)
         self._rec = KaldiRecognizer(model, 16000)
-        print("[STT] Vosk ready.")
+        logger.info("Vosk ready.")
 
     def process_chunk(self, audio_bytes: bytes) -> tuple[str, bool]:
         """Feed raw int16 LE PCM bytes. Returns (text, is_final)."""

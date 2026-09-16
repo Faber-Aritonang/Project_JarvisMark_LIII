@@ -30,9 +30,13 @@ import inspect
 import re
 import sys
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+
+from core.logger import get_logger
+
+logger = get_logger("action_loader")
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
@@ -44,7 +48,7 @@ class ActionRecord:
     name: str
     description: str = ""
     parameters: dict = field(default_factory=lambda: dict(_DEFAULT_PARAMS))
-    handler: Optional[Callable] = None
+    handler: Callable | None = None
     file: str = ""
     valid: bool = False
     error: str = ""

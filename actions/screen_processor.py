@@ -15,6 +15,10 @@ from pathlib import Path
 
 import numpy as np
 
+from core.logger import get_logger
+
+logger = get_logger("actions.screen_processor")
+
 try:
     import cv2
     _CV2 = True
@@ -58,7 +62,7 @@ def _save_config_key(key: str, value) -> None:
         cfg[key] = value
         _CONFIG_PATH.write_text(json.dumps(cfg, indent=4), encoding="utf-8")
     except Exception as e:
-        print(f"[Vision] ⚠️  Could not save config key '{key}': {e}")
+        logger.warning("⚠️ Could not save config key '%s': %s", key, e, exc_info=True)
 
 
 def _get_os() -> str:
@@ -81,7 +85,7 @@ def _compress(img_bytes: bytes, source_format: str = "PNG") -> tuple[bytes, str]
         img.save(buf, format="JPEG", quality=_JPEG_Q, optimize=False)
         return buf.getvalue(), "image/jpeg"
     except Exception as e:
-        print(f"[Vision] ⚠️  Image compress failed: {e}")
+        logger.warning("⚠️ Image compress failed: %s", e, exc_info=True)
         return img_bytes, f"image/{source_format.lower()}"
 
 
@@ -131,15 +135,15 @@ def _probe_camera(index: int, backend: int, warmup: int = 5) -> bool:
 def _detect_camera_index() -> int:
 
     backend = _cv2_backend()
-    print("[Vision] 🔍 Auto-detecting camera...")
+    logger.info("🔍 Auto-detecting camera...")
     for idx in range(6):
         if _probe_camera(idx, backend):
-            print(f"[Vision] ✅ Camera found at index {idx}")
+            logger.info("✅ Camera found at index %d", idx)
             _save_config_key("camera_index", idx)
             return idx
-        print(f"[Vision] ⚠️  Camera index {idx}: no usable frame")
+        logger.warning("⚠️ Camera index %d: no usable frame", idx)
 
-    print("[Vision] ⚠️  No camera found — defaulting to index 0")
+    logger.warning("⚠️ No camera found — defaulting to index 0")
     _save_config_key("camera_index", 0)
     return 0
 

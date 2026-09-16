@@ -1,22 +1,24 @@
 #youtube_video.py
 import json
 import re
-import sys
-import time
 import subprocess
-import shutil
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote_plus
 
+from core.logger import get_logger
+
+logger = get_logger("actions.youtube_video")
+
 try:
-    import pyautogui
+    import pyautogui  # noqa: F401  — availability check
     _PYAUTOGUI = True
 except ImportError:
     _PYAUTOGUI = False
 
 try:
-    import numpy as np
+    import numpy as np  # noqa: F401  — availability check
     _NUMPY = True
 except ImportError:
     _NUMPY = False
@@ -33,7 +35,7 @@ try:
 except ImportError:
     _TRANSCRIPT_OK = False
 
-from config import get_os, is_windows, is_mac, is_linux
+from config import is_linux, is_mac, is_windows
 
 
 def _get_base_dir() -> Path:
@@ -58,7 +60,7 @@ _YT_VIDEO_FILTER = "EgIQAQ%3D%3D"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(API_CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
 
@@ -71,7 +73,7 @@ def _open_url(url: str) -> None:
         else:
             subprocess.Popen(["cmd", "/c", "start", "", url], shell=False)
     except Exception as e:
-        print(f"[YouTube] ⚠️ open_url failed: {e}")
+        logger.warning("⚠️ open_url failed: %s", e, exc_info=True)
 
 def _scrape_first_video_url(query: str) -> str | None:
 
@@ -101,7 +103,7 @@ def _scrape_first_video_url(query: str) -> str | None:
             return f"https://www.youtube.com/watch?v={vid}"
 
     except Exception as e:
-        print(f"[YouTube] ⚠️ scrape_first_video_url failed: {e}")
+        logger.warning("⚠️ scrape_first_video_url failed: %s", e, exc_info=True)
 
     return None
 
@@ -129,7 +131,7 @@ def _ask_for_url(prompt_text: str = "YouTube video URL:") -> str | None:
         url = simpledialog.askstring("Dodol", prompt_text, parent=root)
         return url.strip() if url else None
     except Exception as e:
-        print(f"[YouTube] ⚠️ URL dialog failed: {e}")
+        logger.warning("⚠️ URL dialog failed: %s", e, exc_info=True)
         return None
 
 
@@ -145,7 +147,7 @@ def _get_transcript(video_id: str) -> str | None:
         try:
             transcript = transcript_list.find_manually_created_transcript(lang_priority)
         except Exception:
-            pass
+            logger.debug("No manually created transcript found", exc_info=True)
 
         if transcript is None:
             try:
@@ -162,7 +164,7 @@ def _get_transcript(video_id: str) -> str | None:
         return " ".join(entry["text"] for entry in fetched)
 
     except Exception as e:
-        print(f"[YouTube] ⚠️ Transcript fetch failed: {e}")
+        logger.warning("⚠️ Transcript fetch failed: %s", e, exc_info=True)
         return None
 
 
@@ -213,7 +215,7 @@ def _save_summary(content: str, video_url: str) -> str:
         else:
             subprocess.Popen(["xdg-open", str(filepath)])
     except Exception as e:
-        print(f"[YouTube] ⚠️ Could not open text editor: {e}")
+        logger.warning("⚠️ Could not open text editor: %s", e, exc_info=True)
 
     return str(filepath)
 
@@ -247,7 +249,7 @@ def _scrape_video_info(video_id: str) -> dict:
 
         return info
     except Exception as e:
-        print(f"[YouTube] ⚠️ Info scrape failed: {e}")
+        logger.warning("⚠️ Info scrape failed: %s", e, exc_info=True)
         return {}
 
 
@@ -274,7 +276,7 @@ def _scrape_trending(region: str = "TR", max_results: int = 8) -> list[dict]:
 
         return results
     except Exception as e:
-        print(f"[YouTube] ⚠️ Trending scrape failed: {e}")
+        logger.warning("⚠️ Trending scrape failed: %s", e, exc_info=True)
         return []
 
 def _handle_play(parameters: dict, player) -> str:
@@ -285,16 +287,16 @@ def _handle_play(parameters: dict, player) -> str:
     if player:
         player.write_log(f"[YouTube] Searching: {query}")
 
-    print(f"[YouTube] 🔍 Scraping first non-Shorts video for: {query}")
+    logger.info("🔍 Scraping first non-Shorts video for: %s", query)
 
     video_url = _scrape_first_video_url(query)
 
     if video_url:
-        print(f"[YouTube] ▶️ Opening: {video_url}")
+        logger.info("▶️ Opening: %s", video_url)
         _open_url(video_url)
         return f"Playing: {query}"
 
-    print(f"[YouTube] ⚠️ Scrape failed, opening filtered search page")
+    logger.warning("⚠️ Scrape failed, opening filtered search page")
     fallback_url = (
         f"https://www.youtube.com/results"
         f"?search_query={quote_plus(query)}"
@@ -419,7 +421,7 @@ def youtube_video(
 
     if player:
         player.write_log(f"[YouTube] Action: {action}")
-    print(f"[YouTube] ▶️  Action: {action}  Params: {params}")
+    logger.info("▶️ Action: %s  Params: %s", action, params)
 
     handler = _ACTION_MAP.get(action)
     if handler is None:
@@ -433,7 +435,7 @@ def youtube_video(
             return handler(params, player) or "Done."
         return handler(params, player, speak) or "Done."
     except Exception as e:
-        print(f"[YouTube] ❌ Error in {action}: {e}")
+        logger.error("❌ Error in %s: %s", action, e, exc_info=True)
         return f"YouTube {action} failed, sir: {e}"
 
 

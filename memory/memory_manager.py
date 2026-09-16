@@ -1,9 +1,13 @@
 import json
 import re
-from datetime import datetime
-from threading import Lock
-from pathlib import Path
 import sys
+from datetime import datetime
+from pathlib import Path
+from threading import Lock
+
+from core.logger import get_logger
+
+logger = get_logger("memory_manager")
 
 
 def get_base_dir() -> Path:
@@ -68,7 +72,7 @@ def load_memory() -> dict:
                 return data
             return _empty_memory()
         except Exception as e:
-            print(f"[Memory] ⚠️ Load error: {e}")
+            logger.error(f"⚠️ Load error: {e}")
             return _empty_memory()
 
 def _all_entries(memory: dict) -> list[tuple]:
@@ -104,7 +108,7 @@ def _trim_to_limit(memory: dict) -> dict:
             break
         del memory[cat][key]
         dropped.append(f"{cat}/{key}")
-        print(f"[Memory] 🗑️  Trimmed {cat}/{key}")
+        logger.info(f"🗑️  Trimmed {cat}/{key}")
     if dropped and _trim_notifier:
         try:
             _trim_notifier(
@@ -112,6 +116,7 @@ def _trim_to_limit(memory: dict) -> dict:
                 f"({', '.join(dropped[:3])}{'…' if len(dropped) > 3 else ''})"
             )
         except Exception:
+            logger.debug("Trim notifier callback failed", exc_info=True)
             pass
     return memory
 
@@ -162,7 +167,7 @@ def update_memory(memory_update: dict) -> dict:
     memory = load_memory()
     if _recursive_update(memory, memory_update):
         save_memory(memory)
-        print(f"[Memory] 💾 Saved: {list(memory_update.keys())}")
+        logger.info(f"💾 Saved: {list(memory_update.keys())}")
     return memory
 
 def _entry_value(entry) -> str:
@@ -451,7 +456,7 @@ def save_session_summary(summary: str, language: str = "") -> None:
             json.dumps(memory, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-    print(f"[Memory] 📝 Session saved ({entry['date']}): {summary[:60]}…")
+    logger.info(f"📝 Session saved ({entry['date']}): {summary[:60]}…")
 
 
 def pop_last_session() -> dict | None:
@@ -475,5 +480,5 @@ def pop_last_session() -> dict | None:
             )
             return entry
         except Exception as e:
-            print(f"[Memory] ⚠️ pop_last_session error: {e}")
+            logger.error(f"⚠️ pop_last_session error: {e}")
             return None

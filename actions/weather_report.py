@@ -1,6 +1,10 @@
 import webbrowser
 from urllib.parse import quote_plus
 
+from core.logger import get_logger
+
+logger = get_logger("actions.weather_report")
+
 
 def weather_action(
     parameters: dict,
@@ -8,7 +12,7 @@ def weather_action(
     session_memory=None,
 ) -> str:
     city     = parameters.get("city")
-    when     = parameters.get("time", "today")  
+    when     = parameters.get("time", "today")
 
     if not city or not isinstance(city, str) or not city.strip():
         msg = "Sir, the city is missing for the weather report."
@@ -37,18 +41,18 @@ def weather_action(
         try:
             session_memory.set_last_search(query=search_query, response=msg)
         except Exception:
-            pass
+            logger.debug("Failed to set session memory", exc_info=True)
 
     return msg
 
 
 def _log(message: str, player=None) -> None:
-    print(f"[Weather] {message}")
+    logger.info("%s", message)
     if player:
         try:
             player.write_log(f"Dodol: {message}")
         except Exception:
-            pass
+            logger.debug("Failed to write player log", exc_info=True)
 
 
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────

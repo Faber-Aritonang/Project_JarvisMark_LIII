@@ -28,6 +28,10 @@ from __future__ import annotations
 import threading
 import time
 
+from core.logger import get_logger
+
+logger = get_logger("audio_devices")
+
 # The label shown for "let the OS decide", and the value stored in config for
 # it. Empty string, so an untouched install and a deliberately-default install
 # are the same thing — nothing changes for anyone who never opens the picker.
@@ -146,7 +150,7 @@ def _transport_works(idx: int, kind: str, api_key) -> bool:
             st.stop(); st.close()
             ok = elapsed > secs * 0.5
             if not ok:
-                print(f"[Audio] output: host API reports success but moves no "
+                logger.warning("output: host API reports success but moves no "
                       f"audio ({elapsed*1000:.0f} ms for {secs*1000:.0f} ms) "
                       f"— skipping it")
         else:
@@ -163,10 +167,10 @@ def _transport_works(idx: int, kind: str, api_key) -> bool:
             st.stop(); st.close()
             ok = frames[0] > rate * secs * 0.3
             if not ok:
-                print(f"[Audio] input: host API delivered {frames[0]} frames in "
+                logger.debug("input: host API delivered %s frames in "
                       f"{secs*1000:.0f} ms — skipping it")
     except Exception as e:
-        print(f"[Audio] {kind} transport probe failed: {e}")
+        logger.warning("%s transport probe failed: %s", kind, e)
         ok = False
 
     _probe_results[api_key] = ok
@@ -262,6 +266,7 @@ def _query() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {"input": [], "output": []}
     try:
         import platform
+
         import sounddevice as sd
 
         devices = list(sd.query_devices())
@@ -309,13 +314,13 @@ def _query() -> dict[str, list[str]]:
                 out[kind] = [_display_name(n, devices) for _i, n in found]
                 break
             if out[kind]:
-                print(f"[Audio] {kind}: using "
+                logger.info("%s: using "
                       f"{_chosen_api[kind] or 'any host API'} "
                       f"({len(out[kind])} devices)")
         return out
 
     except Exception as e:
-        print(f"[Audio] Device enumeration failed: {e}")
+        logger.error("Device enumeration failed: %s", e)
     return out
 
 
@@ -327,8 +332,8 @@ def prefetch() -> None:
         result = _query()
         with _cache_lock:
             _cache = result
-        print(f"[Audio] {len(result['input'])} input / "
-              f"{len(result['output'])} output devices found")
+        logger.info("%s input / %s output devices found",
+                    len(result['input']), len(result['output']))
     threading.Thread(target=_work, daemon=True, name="audio-devices").start()
 
 
@@ -363,6 +368,7 @@ def resolve(name: str, kind: str):
 
     try:
         import platform
+
         import sounddevice as sd
 
         devices = list(sd.query_devices())
@@ -413,9 +419,9 @@ def resolve(name: str, kind: str):
             if partial is not None:
                 return partial
 
-        print(f"[Audio] Saved {kind} device '{wanted}' cannot be opened at "
-              f"{_RATES.get(kind)} Hz on any host API — using system default")
+        logger.warning("Saved %s device '%s' cannot be opened at %s Hz on any host API — using system default",
+                       kind, wanted, _RATES.get(kind))
         return None
     except Exception as e:
-        print(f"[Audio] resolve({kind}) failed: {e} — using system default")
+        logger.warning("resolve(%s) failed: %s — using system default", kind, e)
         return None

@@ -13,11 +13,14 @@ import inspect
 import re
 import sys
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
 
-from memory.config_manager import get_plugin_enabled, get_plugin_config
+from core.logger import get_logger
+from memory.config_manager import get_plugin_config, get_plugin_enabled
+
+logger = get_logger("plugin_loader")
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
@@ -28,11 +31,11 @@ class PluginRecord:
     name: str
     description: str = ""
     parameters: dict = field(default_factory=lambda: dict(_DEFAULT_PARAMS))
-    run: Optional[Callable] = None
+    run: Callable | None = None
     file: str = ""
     valid: bool = False
     error: str = ""
-    settings: Optional[dict] = None   # optional PLUGIN_SETTINGS schema (config fields)
+    settings: dict | None = None   # optional PLUGIN_SETTINGS schema (config fields)
 
 
 class PluginRegistry:

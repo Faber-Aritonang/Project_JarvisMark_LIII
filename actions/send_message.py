@@ -4,6 +4,10 @@ import sys
 import time
 from pathlib import Path
 
+from core.logger import get_logger
+
+logger = get_logger("actions.send_message")
+
 try:
     import pyautogui
     pyautogui.FAILSAFE = True
@@ -90,7 +94,7 @@ def _open_app(app_name: str) -> bool:
             time.sleep(2.5)
             return result.returncode == 0
 
-        else: 
+        else:
             launched = False
             for launcher in [
                 ["gtk-launch", app_name.lower()],
@@ -110,7 +114,7 @@ def _open_app(app_name: str) -> bool:
             return launched
 
     except Exception as e:
-        print(f"[SendMessage] ⚠️ Could not open {app_name}: {e}")
+        logger.warning("⚠️ Could not open %s: %s", app_name, e, exc_info=True)
         return False
 
 
@@ -118,10 +122,10 @@ def _open_browser_url(url: str) -> bool:
     import webbrowser
     try:
         webbrowser.open(url)
-        time.sleep(4.0) 
+        time.sleep(4.0)
         return True
     except Exception as e:
-        print(f"[SendMessage] ⚠️ Could not open browser: {e}")
+        logger.warning("⚠️ Could not open browser: %s", e, exc_info=True)
         return False
 
 def _search_in_app(query: str) -> None:
@@ -174,7 +178,7 @@ def _send_instagram(receiver: str, message: str) -> str:
 
     pyautogui.press("down")
     time.sleep(0.3)
-    pyautogui.press("enter")   
+    pyautogui.press("enter")
     time.sleep(0.4)
 
     for _ in range(4):
@@ -249,7 +253,7 @@ def send_message(
         return "PyAutoGUI is not installed — cannot control the desktop."
 
     preview = message_text[:50] + ("…" if len(message_text) > 50 else "")
-    print(f"[SendMessage] 📨 {platform} → {receiver}: {preview}")
+    logger.info("📨 %s → %s: %s", platform, receiver, preview)
     if player:
         player.write_log(f"[msg] {platform} → {receiver}")
 
@@ -259,7 +263,7 @@ def send_message(
     except Exception as e:
         result = f"Could not send message: {e}"
 
-    print(f"[SendMessage] {'✅' if 'sent' in result.lower() else '❌'} {result}")
+    logger.info("%s %s", '✅' if 'sent' in result.lower() else '❌', result)
     if player:
         player.write_log(f"[msg] {result}")
 

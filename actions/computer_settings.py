@@ -1,11 +1,15 @@
 #computer_settings.py
 import json
+import platform
 import re
+import subprocess
 import sys
 import time
-import subprocess
-import platform
 from pathlib import Path
+
+from core.logger import get_logger
+
+logger = get_logger("actions.computer_settings")
 
 try:
     import pyautogui
@@ -39,7 +43,7 @@ def _get_base_dir() -> Path:
 
 def _get_api_key() -> str:
     path = _get_base_dir() / "config" / "api_keys.json"
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
 def _get_macos_wifi_interface() -> str:
@@ -55,8 +59,8 @@ def _get_macos_wifi_interface() -> str:
                     if lines[j].startswith("Device:"):
                         return lines[j].split(":", 1)[1].strip()
     except Exception:
-        pass
-    return "en0" 
+        logger.debug("Failed to get macOS wifi interface", exc_info=True)
+    return "en0"
 
 def volume_up():
     if _OS == "Windows":
@@ -98,8 +102,8 @@ def volume_get() -> int | None:
     undoable — a wrong undo is worse than no undo."""
     try:
         if _OS == "Windows":
-            import math
-            from ctypes import cast, POINTER
+            from ctypes import POINTER, cast
+
             from comtypes import CLSCTX_ALL
             from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
             devices   = AudioUtilities.GetSpeakers()
@@ -118,6 +122,7 @@ def volume_get() -> int | None:
         m = re.search(r"(\d+)%", r.stdout)
         return max(0, min(100, int(m.group(1)))) if m else None
     except Exception:
+        logger.debug("Failed to get volume", exc_info=True)
         return None
 
 
@@ -140,7 +145,7 @@ def brightness_get() -> int | None:
                                      capture_output=True, text=True, timeout=5).stdout.strip())
             return max(0, min(100, round(cur * 100 / mx))) if mx else None
     except Exception:
-        pass
+        logger.debug("Failed to get brightness", exc_info=True)
     return None
 
 
@@ -164,7 +169,8 @@ def volume_set(value: int):
     if _OS == "Windows":
         try:
             import math
-            from ctypes import cast, POINTER
+            from ctypes import POINTER, cast
+
             from comtypes import CLSCTX_ALL
             from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
             devices   = AudioUtilities.GetSpeakers()
@@ -174,7 +180,7 @@ def volume_set(value: int):
             vol.SetMasterVolumeLevel(vol_db, None)
             return
         except Exception as e:
-            print(f"[Settings] pycaw failed, using keypress fallback: {e}")
+            logger.warning("pycaw failed, using keypress fallback: %s", e, exc_info=True)
             pyautogui.press("volumemute")
             pyautogui.press("volumemute")
     elif _OS == "Darwin":
@@ -213,7 +219,7 @@ def brightness_up():
                 capture_output=True, timeout=5, **_WIN_HIDE
             )
         except Exception as e:
-            print(f"[Settings] Brightness up failed on Windows: {e}")
+            logger.warning("Brightness up failed on Windows: %s", e, exc_info=True)
 
 def brightness_down():
     if _OS == "Darwin":
@@ -242,7 +248,7 @@ def brightness_down():
                 capture_output=True, timeout=5, **_WIN_HIDE
             )
         except Exception as e:
-            print(f"[Settings] Brightness down failed on Windows: {e}")
+            logger.warning("Brightness down failed on Windows: %s", e, exc_info=True)
 
 def close_app():
     if _OS == "Darwin": pyautogui.hotkey("command", "q")
@@ -283,14 +289,14 @@ def snap_left():
         try:
             subprocess.run(["open", "-a", "Rectangle"], capture_output=True, timeout=1)
         except Exception:
-            pass
+            logger.debug("wmctrl snap_left failed", exc_info=True)
         pyautogui.hotkey("ctrl", "option", "left")
     else:  # Linux
         try:
             subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-e", "0,0,0,960,1080"],
                 capture_output=True)
         except Exception:
-            pass
+            logger.debug("Rectangle/wmctrl snap_right failed", exc_info=True)
 
 def snap_right():
     if _OS == "Windows":
@@ -299,14 +305,14 @@ def snap_right():
         try:
             subprocess.run(["open", "-a", "Rectangle"], capture_output=True, timeout=1)
         except Exception:
-            pass
+            logger.debug("Rectangle/wmctrl snap_right failed", exc_info=True)
         pyautogui.hotkey("ctrl", "option", "right")
     else:  # Linux
         try:
             subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-e", "0,960,0,960,1080"],
                 capture_output=True)
         except Exception:
-            pass
+            logger.debug("wmctrl snap_right failed", exc_info=True)
 
 def switch_window():
     if _OS == "Darwin": pyautogui.hotkey("command", "tab")
@@ -501,7 +507,7 @@ def sleep_display():
             import ctypes
             ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
         except Exception as e:
-            print(f"[Settings] sleep_display failed: {e}")
+            logger.warning("sleep_display failed: %s", e, exc_info=True)
     elif _OS == "Darwin":
         subprocess.run(["pmset", "displaysleepnow"], capture_output=True)
     else:
@@ -527,7 +533,7 @@ def dark_mode():
             winreg.SetValueEx(key, "SystemUsesLightTheme", 0, winreg.REG_DWORD, 1 - current)
             winreg.CloseKey(key)
         except Exception as e:
-            print(f"[Settings] dark_mode registry failed: {e}")
+            logger.warning("dark_mode registry failed: %s", e, exc_info=True)
     else:
         try:
             result = subprocess.run(
@@ -541,7 +547,7 @@ def dark_mode():
                 capture_output=True
             )
         except Exception as e:
-            print(f"[Settings] dark_mode Linux failed: {e}")
+            logger.warning("dark_mode Linux failed: %s", e, exc_info=True)
 
 def toggle_wifi():
     if _OS == "Darwin":
@@ -563,14 +569,14 @@ def toggle_wifi():
                 capture_output=True, timeout=10, **_WIN_HIDE
             )
         except Exception as e:
-            print(f"[Settings] toggle_wifi Windows failed: {e}")
+            logger.warning("toggle_wifi Windows failed: %s", e, exc_info=True)
     else:
         try:
             result = subprocess.run(["nmcli", "radio", "wifi"], capture_output=True, text=True)
             state  = "off" if "enabled" in result.stdout else "on"
             subprocess.run(["nmcli", "radio", "wifi", state], capture_output=True)
         except Exception as e:
-            print(f"[Settings] toggle_wifi Linux failed: {e}")
+            logger.warning("toggle_wifi Linux failed: %s", e, exc_info=True)
 
 def restart_computer():
     if _OS == "Windows":
@@ -806,7 +812,7 @@ def computer_settings(
     if not action:
         return _suggest(description or raw_action)
 
-    print(f"[Settings] Action: {action}  Value: {value}  OS: {_OS}")
+    logger.info("Action: %s  Value: %s  OS: %s", action, value, _OS)
     if player:
         player.write_log(f"[Settings] {action}")
 
@@ -888,7 +894,7 @@ def computer_settings(
     try:
         func()
     except Exception as e:
-        print(f"[Settings] Action failed ({action}): {e}")
+        logger.error("Action failed (%s): %s", action, e, exc_info=True)
         return f"Action failed ({action}): {e}"
 
     if _before:

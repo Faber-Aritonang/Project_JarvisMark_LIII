@@ -11,6 +11,7 @@ Install deps:  pip install fastapi "uvicorn[standard]" cryptography
 import asyncio
 import base64
 import hashlib
+import logging
 import re
 import secrets
 import socket
@@ -18,11 +19,13 @@ import string
 import time
 from pathlib import Path
 
+logger = logging.getLogger("dodol.dashboard")
+
 _DEPS_OK = False
 try:
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-    from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
     import uvicorn
+    from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     _DEPS_OK = True
 except ImportError:
     pass
@@ -30,7 +33,8 @@ except ImportError:
 # python-multipart is required for file uploads — optional dependency
 _UPLOAD_OK = False
 try:
-    from fastapi import UploadFile, File as FastAPIFile
+    from fastapi import File as FastAPIFile
+    from fastapi import UploadFile
     _UPLOAD_OK = True
 except Exception:
     pass
@@ -61,7 +65,7 @@ UPLOADS_DIR = _make_uploads_dir()
 def _get_gemini_key() -> str | None:
     try:
         import json as _json
-        with open(BASE_DIR / "config" / "api_keys.json", "r", encoding="utf-8") as f:
+        with open(BASE_DIR / "config" / "api_keys.json", encoding="utf-8") as f:
             return _json.load(f).get("gemini_api_key")
     except Exception:
         return None
@@ -80,8 +84,8 @@ def _derive_key(session_key: str) -> bytes:
 
 def _decrypt_cbc(aes_key: bytes, enc_b64: str) -> str:
     """Decrypt base64(IV[16] ‖ ciphertext) with AES-256-CBC + PKCS7."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     from cryptography.hazmat.primitives import padding as sym_pad
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     raw      = base64.b64decode(enc_b64)
     iv, ct   = raw[:16], raw[16:]
     dec      = Cipher(algorithms.AES(aes_key), modes.CBC(iv)).decryptor()
@@ -106,11 +110,16 @@ def _ensure_network_access(port: int) -> None:
     macOS   : osascript admin dialog if the Application Firewall is on.
     Linux   : pkexec GUI → sudo -n → prints manual command as fallback.
     """
-    import sys, subprocess, os, tempfile, threading
+    import os
+    import subprocess
+    import sys
+    import tempfile
+    import threading
 
     # ── Windows ──────────────────────────────────────────────────────────────
     if sys.platform == "win32":
-        import ctypes, time
+        import ctypes
+        import time
 
         port_rule = f"Dodol Dashboard Port {port}"
         prog_rule  = "Dodol Dashboard Python"
@@ -186,7 +195,7 @@ def _ensure_network_access(port: int) -> None:
                 [bat_path], capture_output=True, timeout=8, shell=True
             )
             if r.returncode == 0:
-                print(f"[Dashboard] Firewall configured for port {port}.")
+                logger.info(f"Firewall configured for port {port}.")
                 try:
                     os.unlink(bat_path)
                 except Exception:
@@ -198,8 +207,8 @@ def _ensure_network_access(port: int) -> None:
         # ── ShellExecuteW: native UAC elevation (most reliable on Windows) ────
         # ShellExecuteW with verb "runas" always shows the UAC dialog regardless
         # of UAC level settings. Non-blocking — uvicorn is already running.
-        print("[Dashboard] One-time network setup required.")
-        print("[Dashboard] >>> A Windows security dialog will appear — click 'Yes' <<<")
+        logger.info("One-time network setup required.")
+        logger.info(">>> A Windows security dialog will appear — click 'Yes' <<<")
         try:
             ret = ctypes.windll.shell32.ShellExecuteW(
                 None,       # hwnd  (no parent window)
@@ -213,13 +222,13 @@ def _ensure_network_access(port: int) -> None:
                 # ShellExecuteW returns immediately; bat finishes in ~1 second.
                 # Sleep briefly so the rules are in place before the first retry.
                 time.sleep(2)
-                print(f"[Dashboard] Network setup complete — port {port} is open.")
-                print("[Dashboard] Refresh your phone browser to connect.")
+                logger.info(f"Network setup complete — port {port} is open.")
+                logger.info("Refresh your phone browser to connect.")
             else:
-                print("[Dashboard] Setup was not allowed.")
-                print("[Dashboard] Phone connections may fail until Dodol is run as Administrator.")
+                logger.warning("Setup was not allowed.")
+                logger.warning("Phone connections may fail until Dodol is run as Administrator.")
         except Exception as e:
-            print(f"[Dashboard] Firewall setup error: {e}")
+            logger.error(f"Firewall setup error: {e}")
         finally:
             # Cleanup after the bat has had time to run
             def _cleanup(path: str) -> None:
@@ -248,7 +257,7 @@ def _ensure_network_access(port: int) -> None:
             if py in listed.stdout:
                 return  # already allowed
 
-            print("[Dashboard] One-time network setup — enter your password in the macOS dialog.")
+            logger.info("One-time network setup — enter your password in the macOS dialog.")
             subprocess.run(
                 ["osascript", "-e",
                  f'do shell script "{fw_ctl} --add {py} && {fw_ctl} --unblockapp {py}"'
@@ -274,9 +283,9 @@ def _ensure_network_access(port: int) -> None:
         r = subprocess.run(["ufw", "status"], capture_output=True, text=True, timeout=5)
         if "active" in r.stdout.lower():
             if _privileged(["ufw", "allow", f"{port}/tcp"]):
-                print(f"[Dashboard] ufw: port {port} allowed.")
+                logger.info(f"ufw: port {port} allowed.")
             else:
-                print(f"[Dashboard] Run manually:  sudo ufw allow {port}/tcp")
+                logger.warning(f"Run manually:  sudo ufw allow {port}/tcp")
             return
     except FileNotFoundError:
         pass
@@ -289,9 +298,9 @@ def _ensure_network_access(port: int) -> None:
             ok = (_privileged(["firewall-cmd", "--add-port", f"{port}/tcp", "--permanent"])
                   and _privileged(["firewall-cmd", "--reload"]))
             if ok:
-                print(f"[Dashboard] firewalld: port {port} allowed.")
+                logger.info(f"firewalld: port {port} allowed.")
             else:
-                print(f"[Dashboard] Run manually:  sudo firewall-cmd --add-port={port}/tcp --permanent && sudo firewall-cmd --reload")
+                logger.warning(f"Run manually:  sudo firewall-cmd --add-port={port}/tcp --permanent && sudo firewall-cmd --reload")
             return
     except FileNotFoundError:
         pass
@@ -300,9 +309,9 @@ def _ensure_network_access(port: int) -> None:
         r = subprocess.run(["iptables", "-L", "INPUT", "-n"], capture_output=True, timeout=5)
         if r.returncode == 0:
             if _privileged(["iptables", "-A", "INPUT", "-p", "tcp", "--dport", str(port), "-j", "ACCEPT"]):
-                print(f"[Dashboard] iptables: port {port} opened.")
+                logger.info(f"iptables: port {port} opened.")
             else:
-                print(f"[Dashboard] Run manually:  sudo iptables -A INPUT -p tcp --dport {port} -j ACCEPT")
+                logger.warning(f"Run manually:  sudo iptables -A INPUT -p tcp --dport {port} -j ACCEPT")
     except FileNotFoundError:
         pass  # no iptables means firewall is probably off — nothing to do
 
@@ -312,12 +321,12 @@ def _ensure_crypto_js() -> None:
         return
     try:
         import urllib.request
-        print("[Dashboard] Downloading CryptoJS (one-time setup)…")
+        logger.info("Downloading CryptoJS (one-time setup)…")
         urllib.request.urlretrieve(_CRYPTOJS_CDN, str(_CRYPTOJS_FILE))
-        print("[Dashboard] CryptoJS cached — will serve locally from now on.")
+        logger.info("CryptoJS cached — will serve locally from now on.")
     except Exception as e:
-        print(f"[Dashboard] CryptoJS download failed: {e}")
-        print(f"[Dashboard] Encryption will fall back to CDN load on client.")
+        logger.error(f"CryptoJS download failed: {e}")
+        logger.warning("Encryption will fall back to CDN load on client.")
 
 
 _ensure_crypto_js()
@@ -763,13 +772,13 @@ class DashboardServer:
             self.app, host="0.0.0.0", port=PORT + 1, log_level="warning",
             ssl_keyfile=str(ssl_key), ssl_certfile=str(ssl_cert),
         )
-        print(f"[Dashboard] Manual entry:  {self._ip}:{PORT + 1}  (type in browser, accept cert once)")
+        logger.info(f"Manual entry:  {self._ip}:{PORT + 1}  (type in browser, accept cert once)")
         await uvicorn.Server(cfg).serve()
 
     async def serve(self) -> None:
         if not _DEPS_OK:
-            print("[Dashboard] fastapi/uvicorn not installed — dashboard disabled.")
-            print("[Dashboard] Run:  pip install fastapi 'uvicorn[standard]' cryptography")
+            logger.warning("fastapi/uvicorn not installed — dashboard disabled.")
+            logger.warning("Run:  pip install fastapi 'uvicorn[standard]' cryptography")
             return
 
         # Firewall setup runs in a thread — uvicorn starts immediately,
@@ -789,6 +798,6 @@ class DashboardServer:
         )
 
         proto = "https" if use_ssl else "http"
-        print(f"[Dashboard] {proto}://{self._ip}:{PORT}")
-        print("[Dashboard] Press 'Remote Control' in Dodol UI to get the QR code.")
+        logger.info(f"{proto}://{self._ip}:{PORT}")
+        logger.info("Press 'Remote Control' in Dodol UI to get the QR code.")
         await uvicorn.Server(cfg).serve()

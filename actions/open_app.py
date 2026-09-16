@@ -1,10 +1,14 @@
-import time
-import subprocess
 import platform
 import shutil
+import subprocess
+import time
+
+from core.logger import get_logger
+
+logger = get_logger("actions.open_app")
 
 try:
-    import psutil
+    import psutil  # noqa: F401  — availability check
     _PSUTIL = True
 except ImportError:
     _PSUTIL = False
@@ -75,7 +79,7 @@ def _normalize(raw: str) -> str:
         if alias_key in key or key in alias_key:
             return os_map.get(_SYSTEM, raw)
 
-    return raw  
+    return raw
 
 def _launch_windows(app_name: str) -> bool:
 
@@ -90,7 +94,7 @@ def _launch_windows(app_name: str) -> bool:
             time.sleep(1.5)
             return True
         except Exception as e:
-            print(f"[open_app] subprocess failed: {e}")
+            logger.warning("subprocess failed: %s", e, exc_info=True)
 
     if ":" in app_name:
         try:
@@ -98,7 +102,7 @@ def _launch_windows(app_name: str) -> bool:
             time.sleep(1.0)
             return True
         except Exception:
-            pass
+            logger.debug("Windows start command failed", exc_info=True)
 
     try:
         import pyautogui
@@ -111,7 +115,7 @@ def _launch_windows(app_name: str) -> bool:
         time.sleep(2.5)
         return True
     except Exception as e:
-        print(f"[open_app] Start Menu search failed: {e}")
+        logger.warning("Start Menu search failed: %s", e, exc_info=True)
 
     return False
 
@@ -127,7 +131,7 @@ def _launch_macos(app_name: str) -> bool:
             time.sleep(1.0)
             return True
     except Exception:
-        pass
+        logger.debug("open -a failed", exc_info=True)
 
     try:
         result = subprocess.run(
@@ -138,7 +142,7 @@ def _launch_macos(app_name: str) -> bool:
             time.sleep(1.0)
             return True
     except Exception:
-        pass
+        logger.debug("open -a .app failed", exc_info=True)
 
     binary = shutil.which(app_name) or shutil.which(app_name.lower())
     if binary:
@@ -151,7 +155,7 @@ def _launch_macos(app_name: str) -> bool:
             time.sleep(1.0)
             return True
         except Exception:
-            pass
+            logger.debug("binary launch failed", exc_info=True)
 
     try:
         import pyautogui
@@ -163,7 +167,7 @@ def _launch_macos(app_name: str) -> bool:
         time.sleep(1.5)
         return True
     except Exception as e:
-        print(f"[open_app] Spotlight failed: {e}")
+        logger.warning("Spotlight failed: %s", e, exc_info=True)
 
     return False
 
@@ -184,6 +188,7 @@ def _launch_linux(app_name: str) -> bool:
                     time.sleep(1.0)
                     return True
                 except Exception:
+                    logger.debug("Terminal emulator failed", exc_info=True)
                     continue
 
     binary = (
@@ -202,7 +207,7 @@ def _launch_linux(app_name: str) -> bool:
             time.sleep(1.0)
             return True
         except Exception:
-            pass
+            logger.debug("Binary launch failed", exc_info=True)
 
     try:
         subprocess.run(
@@ -211,7 +216,7 @@ def _launch_linux(app_name: str) -> bool:
         )
         return True
     except Exception:
-        pass
+        logger.debug("xdg-open failed", exc_info=True)
 
     for desktop_name in [
         app_name.lower(),
@@ -226,7 +231,7 @@ def _launch_linux(app_name: str) -> bool:
             if result.returncode == 0:
                 return True
         except Exception:
-            pass
+            logger.debug("gtk-launch failed", exc_info=True)
 
     return False
 
@@ -253,7 +258,7 @@ def open_app(
         return f"Unsupported operating system: {_SYSTEM}"
 
     normalized = _normalize(app_name)
-    print(f"[open_app] Launching: '{app_name}' → '{normalized}' ({_SYSTEM})")
+    logger.info("Launching: '%s' → '%s' (%s)", app_name, normalized, _SYSTEM)
 
     if player:
         player.write_log(f"[open_app] {app_name}")
@@ -269,7 +274,7 @@ def open_app(
             f"It may still be loading, or it might not be installed."
         )
     except Exception as e:
-        print(f"[open_app] Error: {e}")
+        logger.error("Error: %s", e, exc_info=True)
         return f"Failed to open {app_name}: {e}"
 
 

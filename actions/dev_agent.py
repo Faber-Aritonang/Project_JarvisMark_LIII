@@ -1,9 +1,13 @@
-import subprocess
-import sys
 import json
 import re
+import subprocess
+import sys
 import time
 from pathlib import Path
+
+from core.logger import get_logger
+
+logger = get_logger("actions.dev_agent")
 
 
 def get_base_dir():
@@ -20,7 +24,7 @@ MODEL_PLANNER    = "gemini-flash-latest"
 MODEL_WRITER     = "gemini-flash-latest"
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(API_CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
 
@@ -70,7 +74,7 @@ def _classify_error(output: str) -> str:
 
     if "syntaxerror" in low or "invalid syntax" in low:
         return "syntax_error"
-    
+
     if "cannot import" in low or "importerror" in low:
         return "import_error"
 
@@ -85,7 +89,7 @@ def _classify_error(output: str) -> str:
 
 
 def _has_error(output: str, run_command: str) -> bool:
-    
+
     low = output.lower()
 
     if "timed out" in low:
@@ -226,7 +230,7 @@ Code for {file_path}:"""
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(code, encoding="utf-8")
 
-        print(f"[DevAgent] ✅ Written: {file_path} ({len(code)} chars)")
+        logger.info("✅ Written: %s (%d chars)", file_path, len(code))
         return code
 
     except Exception as e:
@@ -248,12 +252,12 @@ def _install_dependencies(dependencies: list[str], project_dir: Path) -> str:
         if result.returncode != 0:
             to_install.append(dep)
         else:
-            print(f"[DevAgent] ✓ Already installed: {pkg_name}")
+            logger.info("✓ Already installed: %s", pkg_name)
 
     if not to_install:
         return f"All dependencies already installed: {', '.join(dependencies)}"
 
-    print(f"[DevAgent] 📦 Installing: {to_install}")
+    logger.info("📦 Installing: %s", to_install)
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install"] + to_install,
@@ -284,14 +288,15 @@ def _open_vscode(project_dir: Path) -> bool:
                 stderr=subprocess.DEVNULL
             )
             time.sleep(1.5)
-            print(f"[DevAgent] 💻 VSCode opened: {project_dir}")
+            logger.info("💻 VSCode opened: %s", project_dir)
             return True
         except Exception:
+            logger.debug("VSCode candidate failed", exc_info=True)
             continue
     return False
 
 def _run_project(run_command: str, project_dir: Path, timeout: int = 30) -> str:
-    print(f"[DevAgent] 🚀 Running: {run_command}")
+    logger.info("🚀 Running: %s", run_command)
     try:
         parts = run_command.split()
         if parts[0].lower() == "python":
@@ -333,7 +338,7 @@ def _try_auto_install(error_output: str, project_dir: Path) -> bool:
         return False
 
     pkg = match.group(1).replace("_", "-").split(".")[0]
-    print(f"[DevAgent] 🔧 Auto-installing missing package: {pkg}")
+    logger.info("🔧 Auto-installing missing package: %s", pkg)
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", pkg],
@@ -343,6 +348,7 @@ def _try_auto_install(error_output: str, project_dir: Path) -> bool:
         )
         return result.returncode == 0
     except Exception:
+        logger.debug("Auto-install failed", exc_info=True)
         return False
 
 def _fix_files(
@@ -425,12 +431,12 @@ Fixed code for {fix_path}:"""
             full_path.write_text(fixed, encoding="utf-8")
 
             updated_codes[fix_path] = fixed
-            print(f"[DevAgent] 🔧 Fixed: {fix_path}")
+            logger.info("🔧 Fixed: %s", fix_path)
 
         except Exception as e:
             if _is_rate_limit(e):
                 raise RateLimitError(str(e))
-            print(f"[DevAgent] ⚠️ Could not fix {fix_path}: {e}")
+            logger.warning("⚠️ Could not fix %s: %s", fix_path, e, exc_info=True)
 
     return updated_codes
 
@@ -444,7 +450,7 @@ def _build_project(
 ) -> str:
 
     def log(msg: str):
-        print(f"[DevAgent] {msg}")
+        logger.info("%s", msg)
         if player:
             player.write_log(f"[DevAgent] {msg}")
 
@@ -520,7 +526,7 @@ def _build_project(
     _open_vscode(project_dir)
 
     last_output   = ""
-    auto_installs = 0  
+    auto_installs = 0
 
     for attempt in range(1, MAX_FIX_ATTEMPTS + 1):
         log(f"Running project (attempt {attempt}/{MAX_FIX_ATTEMPTS})...")

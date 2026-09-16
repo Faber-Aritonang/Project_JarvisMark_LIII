@@ -11,11 +11,14 @@ import asyncio
 import os
 import queue as _queue
 import threading
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import numpy as np
 import sounddevice as sd
 
+from core.logger import get_logger
+
+logger = get_logger("tts")
 
 
 # USE_TF=0 stops transformers from importing TensorFlow (saves 4-8 s startup).
@@ -166,7 +169,7 @@ def _import_kokoro_pipeline():
             ) from first_err
 
         # ── Version mismatch: upgrade kokoro silently and retry ──────────
-        print("[TTS] Kokoro/transformers version mismatch detected — upgrading kokoro…")
+        logger.info("Kokoro/transformers version mismatch detected — upgrading kokoro…")
         import subprocess
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "kokoro>=0.9",
@@ -185,7 +188,7 @@ def _import_kokoro_pipeline():
         for key in stale:
             del sys.modules[key]
 
-        print("[TTS] Kokoro upgraded — retrying import…")
+        logger.info("Kokoro upgraded — retrying import…")
         try:
             return _try_import()
         except Exception as retry_err:
@@ -253,14 +256,14 @@ class KokoroTTSEngine:
                     torch.set_num_interop_threads(2)
                 except RuntimeError:
                     pass
-                print(
-                    f"[TTS] Kokoro on CPU — for faster speech install CUDA PyTorch:\n"
+                logger.info(
+                    "Kokoro on CPU — for faster speech install CUDA PyTorch:\n"
                     "      pip install torch --index-url https://download.pytorch.org/whl/cu118"
                 )
         except Exception:
             device = "cpu"
 
-        print(f"[TTS] Kokoro — loading (lang='{lang}', device='{device}')…")
+        logger.info(f"Kokoro — loading (lang='{lang}', device='{device}')…")
 
         KPipeline = _import_kokoro_pipeline()
 
@@ -281,7 +284,7 @@ class KokoroTTSEngine:
                 "does not exist", "outgoing", "local_files_only",
             )
             if any(k in _e for k in _offline_keywords):
-                print("[TTS] Kokoro model not in local cache — downloading (one-time, internet required)…")
+                logger.info("Kokoro model not in local cache — downloading (one-time, internet required)…")
                 os.environ.pop("HF_HUB_OFFLINE",      None)
                 os.environ.pop("TRANSFORMERS_OFFLINE", None)
                 os.environ.pop("HF_DATASETS_OFFLINE",  None)
@@ -298,14 +301,14 @@ class KokoroTTSEngine:
             else:
                 raise
 
-        print("[TTS] Kokoro compiling (first-time only)…")
+        logger.info("Kokoro compiling (first-time only)…")
         # Warmup: compiles PyTorch JIT graph so first real speak() call is instant.
         try:
             for _ in self._pipeline("hello", voice=self.voice, speed=self.speed):
                 pass
-            print("[TTS] Kokoro ready.")
+            logger.info("Kokoro ready.")
         except Exception as e:
-            print(f"[TTS] Kokoro warmup warning: {e}")
+            logger.warning(f"Kokoro warmup warning: {e}")
 
     def speak(self, text: str) -> None:
         with self._lock:
@@ -318,7 +321,7 @@ class KokoroTTSEngine:
         # With a producer/consumer pair, chunk N+1 synthesises WHILE chunk N
         # plays, cutting perceived latency by the playback duration of all but
         # the last chunk (typically 1-3 s on multi-sentence responses).
-        audio_q: "_queue.Queue[np.ndarray | None]" = _queue.Queue(maxsize=4)
+        audio_q: _queue.Queue[np.ndarray | None] = _queue.Queue(maxsize=4)
         synth_error: list[Exception] = []
 
         def _synth():
@@ -398,8 +401,8 @@ class TTSPlayer:
     def speak(
         self,
         text:     str,
-        on_start: Optional[Callable] = None,
-        on_done:  Optional[Callable] = None,
+        on_start: Callable | None = None,
+        on_done:  Callable | None = None,
     ) -> None:
         """Synthesise and play text. BLOCKING – call from a dedicated thread."""
         try:
@@ -409,7 +412,7 @@ class TTSPlayer:
                 on_start()
             self._engine.speak(text)
         except Exception as e:
-            print(f"[TTS] Error: {e}")
+            logger.error(f"TTS Error: {e}")
         finally:
             with self._lock:
                 self._playing = False
